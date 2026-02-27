@@ -14,7 +14,376 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      asset_classes: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string
+        }
+        Relationships: []
+      }
+      assets: {
+        Row: {
+          active: boolean
+          class_id: string
+          created_at: string
+          currency: string
+          exchange: string
+          id: string
+          name: string | null
+          ticker: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          class_id: string
+          created_at?: string
+          currency?: string
+          exchange?: string
+          id?: string
+          name?: string | null
+          ticker: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          class_id?: string
+          created_at?: string
+          currency?: string
+          exchange?: string
+          id?: string
+          name?: string | null
+          ticker?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assets_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "asset_classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_targets: {
+        Row: {
+          class_id: string
+          created_at: string
+          id: string
+          lower_band: number
+          target_percent: number
+          upper_band: number
+          user_id: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          id?: string
+          lower_band?: number
+          target_percent?: number
+          upper_band?: number
+          user_id: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          id?: string
+          lower_band?: number
+          target_percent?: number
+          upper_band?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_targets_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "asset_classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      correlation_matrix: {
+        Row: {
+          corr_value: number
+          created_at: string
+          id: string
+          item_a: string
+          item_b: string
+          note: string | null
+          user_id: string
+        }
+        Insert: {
+          corr_value?: number
+          created_at?: string
+          id?: string
+          item_a: string
+          item_b: string
+          note?: string | null
+          user_id: string
+        }
+        Update: {
+          corr_value?: number
+          created_at?: string
+          id?: string
+          item_a?: string
+          item_b?: string
+          note?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      dividends_cache: {
+        Row: {
+          asset_id: string
+          div_12m: number | null
+          dy_12m: number | null
+          id: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          asset_id: string
+          div_12m?: number | null
+          dy_12m?: number | null
+          id?: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          asset_id?: string
+          div_12m?: number | null
+          dy_12m?: number | null
+          id?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dividends_cache_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: true
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positions: {
+        Row: {
+          asset_id: string
+          avg_price: number
+          created_at: string
+          id: string
+          quantity: number
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          avg_price?: number
+          created_at?: string
+          id?: string
+          quantity?: number
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          avg_price?: number
+          created_at?: string
+          id?: string
+          quantity?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "positions_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_cache: {
+        Row: {
+          asset_id: string
+          change_percent: number | null
+          id: string
+          last_price: number | null
+          logo_url: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          asset_id: string
+          change_percent?: number | null
+          id?: string
+          last_price?: number | null
+          logo_url?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          asset_id?: string
+          change_percent?: number | null
+          id?: string
+          last_price?: number | null
+          logo_url?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_cache_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: true
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          asset_id: string
+          created_at: string
+          date: string
+          fees: number
+          id: string
+          price: number
+          quantity: number
+          type: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          date?: string
+          fees?: number
+          id?: string
+          price?: number
+          quantity?: number
+          type: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          date?: string
+          fees?: number
+          id?: string
+          price?: number
+          quantity?: number
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      valuation_models: {
+        Row: {
+          asset_id: string
+          created_at: string
+          id: string
+          json_params: Json
+          model_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          id?: string
+          json_params?: Json
+          model_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          id?: string
+          json_params?: Json
+          model_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "valuation_models_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      valuation_results: {
+        Row: {
+          asset_id: string
+          created_at: string
+          fair_value: number | null
+          id: string
+          json_breakdown: Json
+          max_buy_price: number | null
+          model_type: string
+          updated_at: string
+          upside: number | null
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          fair_value?: number | null
+          id?: string
+          json_breakdown?: Json
+          max_buy_price?: number | null
+          model_type: string
+          updated_at?: string
+          upside?: number | null
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          fair_value?: number | null
+          id?: string
+          json_breakdown?: Json
+          max_buy_price?: number | null
+          model_type?: string
+          updated_at?: string
+          upside?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "valuation_results_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
