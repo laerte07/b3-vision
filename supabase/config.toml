@@ -1,1 +1,4 @@
 project_id = "pkkghzbnszowmmwjlxac"
+
+[functions.brapi-quote]
+verify_jwt = false
