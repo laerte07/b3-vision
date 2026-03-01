@@ -182,6 +182,80 @@ export type Database = {
           },
         ]
       }
+      fundamentals_cache: {
+        Row: {
+          asset_id: string
+          dividend_yield: number | null
+          ebitda: number | null
+          ev: number | null
+          id: string
+          lpa: number | null
+          margin: number | null
+          net_debt: number | null
+          payout: number | null
+          payout_5y: number | null
+          pb_ratio: number | null
+          pe_ratio: number | null
+          revenue_growth: number | null
+          roe: number | null
+          roe_5y: number | null
+          source: string
+          total_shares: number | null
+          updated_at: string
+          vpa: number | null
+        }
+        Insert: {
+          asset_id: string
+          dividend_yield?: number | null
+          ebitda?: number | null
+          ev?: number | null
+          id?: string
+          lpa?: number | null
+          margin?: number | null
+          net_debt?: number | null
+          payout?: number | null
+          payout_5y?: number | null
+          pb_ratio?: number | null
+          pe_ratio?: number | null
+          revenue_growth?: number | null
+          roe?: number | null
+          roe_5y?: number | null
+          source?: string
+          total_shares?: number | null
+          updated_at?: string
+          vpa?: number | null
+        }
+        Update: {
+          asset_id?: string
+          dividend_yield?: number | null
+          ebitda?: number | null
+          ev?: number | null
+          id?: string
+          lpa?: number | null
+          margin?: number | null
+          net_debt?: number | null
+          payout?: number | null
+          payout_5y?: number | null
+          pb_ratio?: number | null
+          pe_ratio?: number | null
+          revenue_growth?: number | null
+          roe?: number | null
+          roe_5y?: number | null
+          source?: string
+          total_shares?: number | null
+          updated_at?: string
+          vpa?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fundamentals_cache_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: true
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       positions: {
         Row: {
           asset_id: string

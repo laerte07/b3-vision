@@ -3,6 +3,24 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+export interface Fundamentals {
+  lpa: number | null;
+  vpa: number | null;
+  roe: number | null;
+  roe_5y: number | null;
+  payout: number | null;
+  payout_5y: number | null;
+  pe_ratio: number | null;
+  pb_ratio: number | null;
+  ev: number | null;
+  ebitda: number | null;
+  net_debt: number | null;
+  total_shares: number | null;
+  dividend_yield: number | null;
+  margin: number | null;
+  revenue_growth: number | null;
+}
+
 export interface PortfolioAsset {
   id: string;
   ticker: string;
@@ -19,6 +37,7 @@ export interface PortfolioAsset {
   price_source: string | null;
   div_12m: number | null;
   dy_12m: number | null;
+  fundamentals: Fundamentals | null;
 }
 
 export const usePortfolio = () => {
@@ -38,16 +57,18 @@ export const usePortfolio = () => {
       const assetIds = assets.map(a => a.id);
       if (assetIds.length === 0) return [];
 
-      const [posRes, priceRes, divRes] = await Promise.all([
+      const [posRes, priceRes, divRes, fundRes] = await Promise.all([
         supabase.from('positions').select('*').eq('user_id', user!.id).in('asset_id', assetIds),
         supabase.from('price_cache').select('*').in('asset_id', assetIds),
         supabase.from('dividends_cache').select('*').in('asset_id', assetIds),
+        supabase.from('fundamentals_cache').select('*').in('asset_id', assetIds),
       ]);
 
       return assets.map(asset => {
         const pos = posRes.data?.find(p => p.asset_id === asset.id);
         const price = priceRes.data?.find(p => p.asset_id === asset.id);
         const div = divRes.data?.find(d => d.asset_id === asset.id);
+        const fund = fundRes.data?.find(f => f.asset_id === asset.id);
         return {
           id: asset.id,
           ticker: asset.ticker,
@@ -64,6 +85,23 @@ export const usePortfolio = () => {
           price_source: price?.source ?? null,
           div_12m: div?.div_12m != null ? Number(div.div_12m) : null,
           dy_12m: div?.dy_12m != null ? Number(div.dy_12m) : null,
+          fundamentals: fund ? {
+            lpa: fund.lpa != null ? Number(fund.lpa) : null,
+            vpa: fund.vpa != null ? Number(fund.vpa) : null,
+            roe: fund.roe != null ? Number(fund.roe) : null,
+            roe_5y: fund.roe_5y != null ? Number(fund.roe_5y) : null,
+            payout: fund.payout != null ? Number(fund.payout) : null,
+            payout_5y: fund.payout_5y != null ? Number(fund.payout_5y) : null,
+            pe_ratio: fund.pe_ratio != null ? Number(fund.pe_ratio) : null,
+            pb_ratio: fund.pb_ratio != null ? Number(fund.pb_ratio) : null,
+            ev: fund.ev != null ? Number(fund.ev) : null,
+            ebitda: fund.ebitda != null ? Number(fund.ebitda) : null,
+            net_debt: fund.net_debt != null ? Number(fund.net_debt) : null,
+            total_shares: fund.total_shares != null ? Number(fund.total_shares) : null,
+            dividend_yield: fund.dividend_yield != null ? Number(fund.dividend_yield) : null,
+            margin: fund.margin != null ? Number(fund.margin) : null,
+            revenue_growth: fund.revenue_growth != null ? Number(fund.revenue_growth) : null,
+          } : null,
         } as PortfolioAsset;
       });
     },
