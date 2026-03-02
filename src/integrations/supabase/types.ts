@@ -329,6 +329,59 @@ export type Database = {
           },
         ]
       }
+      score_history: {
+        Row: {
+          asset_id: string
+          created_at: string
+          id: string
+          json_details: Json
+          score_dividends: number
+          score_growth: number
+          score_quality: number
+          score_risk: number
+          score_total: number
+          score_valuation: number
+          snapshot_date: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          id?: string
+          json_details?: Json
+          score_dividends?: number
+          score_growth?: number
+          score_quality?: number
+          score_risk?: number
+          score_total?: number
+          score_valuation?: number
+          snapshot_date?: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          id?: string
+          json_details?: Json
+          score_dividends?: number
+          score_growth?: number
+          score_quality?: number
+          score_risk?: number
+          score_total?: number
+          score_valuation?: number
+          snapshot_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "score_history_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           asset_id: string
