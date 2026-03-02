@@ -4,8 +4,21 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle, Brain, Save, TrendingDown, TrendingUp, Shield } from 'lucide-react';
-import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { AlertTriangle, Brain, Save, Shield } from 'lucide-react';
+import {
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
@@ -26,205 +39,205 @@ interface PillarScore {
 
 const WEIGHTS = { quality: 25, growth: 20, valuation: 25, risk: 15, dividends: 15 };
 
-function clamp01(v: number): number { return Math.max(0, Math.min(1, isNaN(v) ? 0 : v)); }
-
-function normalize(value: number | null, min: number, max: number, inverse = false): number {
-  if (value == null || max === min) return 0;
-  const raw = inverse ? (max - value) / (max - min) : (value - min) / (max - min);
-  return clamp01(raw);
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, isNaN(v) ? 0 : v));
 }
+
+// Converte para % quando a API vier como decimal (0.18) ou % (18)
+function asPercent(x: number | null | undefined): number | null {
+  if (x == null) return null;
+  if (Math.abs(x) <= 1.5) return x * 100; // heurística: 0..1.5 => decimal
+  return x;
+}
+
+// Curvas suaves para métricas “menor é melhor”
+function scoreLowerBetter(value: number | null, good: number, ok: number, bad: number, fallback = 0.55) {
+  if (value == null || value <= 0) return clamp01(fallback);
+  if (value <= good) return 1;
+  if (value <= ok) return 1 - (value - good) * (0.3 / (ok - good)); // 1..0.7
+  if (value <= bad) return 0.7 - (value - ok) * (0.5 / (bad - ok)); // 0.7..0.2
+  return 0.2;
+}
+
+// Curvas suaves para métricas “maior é melhor”
+function scoreHigherBetter(value: number | null, bad: number, ok: number, good: number, fallback = 0.55) {
+  if (value == null) return clamp01(fallback);
+  if (value >= good) return 1;
+  if (value >= ok) return 0.7 + (value - ok) * (0.3 / (good - ok)); // 0.7..1
+  if (value >= bad) return 0.2 + (value - bad) * (0.5 / (ok - bad)); // 0.2..0.7
+  return 0.2;
+}
+
+/**
+ * Benchmarks realistas (Brasil) – pode evoluir p/ setor depois.
+ * Ideia: pontuar por “mundo real”, não pelo min/max da carteira (amostra pequena distorce).
+ */
+const BENCH = {
+  roe: { bad: 5, ok: 12, good: 20 }, // %
+  margin: { bad: 5, ok: 12, good: 20 }, // %
+  debtEbitda: { good: 0.8, ok: 2.0, bad: 4.0 }, // x (menor melhor)
+  revGrowth: { bad: -5, ok: 5, good: 15 }, // % a.a.
+  // múltiplos (menor melhor)
+  pe: { good: 6, ok: 12, bad: 25 },
+  pb: { good: 0.8, ok: 1.8, bad: 4.0 },
+  evEbitda: { good: 4, ok: 8, bad: 15 },
+  // dividendos
+  dy: { bad: 2, ok: 5, good: 8 }, // %
+};
 
 function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<string, PillarScore> {
   const map = new Map<string, PillarScore>();
   if (stocks.length === 0) return map;
 
-  // Collect sector ranges
-  const vals = (fn: (f: PortfolioAsset) => number | null) => stocks.map(fn).filter((v): v is number => v != null);
-  const range = (arr: number[]) => arr.length > 0 ? { min: Math.min(...arr), max: Math.max(...arr) } : { min: 0, max: 0 };
-
-  const roeRange = range(vals(s => s.fundamentals?.roe ?? null));
-  const marginRange = range(vals(s => s.fundamentals?.margin ?? null));
-  const peRange = range(vals(s => s.fundamentals?.pe_ratio ?? null));
-  const pbRange = range(vals(s => s.fundamentals?.pb_ratio ?? null));
-  const dyRange = range(vals(s => s.fundamentals?.dividend_yield ?? s.dy_12m ?? null));
-  const payoutRange = range(vals(s => s.fundamentals?.payout ?? null));
-
-  // Debt/EBITDA range
-  const debtEbitdaVals = stocks.map(s => {
-    const f = s.fundamentals;
-    if (!f?.net_debt || !f?.ebitda || f.ebitda === 0) return null;
-    return f.net_debt / f.ebitda;
-  }).filter((v): v is number => v != null);
-  const debtEbitdaRange = range(debtEbitdaVals);
-
-  // EV/EBITDA range
-  const evEbitdaVals = stocks.map(s => {
-    const f = s.fundamentals;
-    if (!f?.ev || !f?.ebitda || f.ebitda === 0) return null;
-    return f.ev / f.ebitda;
-  }).filter((v): v is number => v != null);
-  const evEbitdaRange = range(evEbitdaVals);
-
-  const revenueGrowthRange = range(vals(s => s.fundamentals?.revenue_growth ?? null));
-
   for (const stock of stocks) {
     const f = stock.fundamentals;
     const alerts: string[] = [];
 
-    // -- QUALITY (25) --
-    const roe = f?.roe ?? f?.roe_5y ?? null;
-    const margin = f?.margin ?? null;
-    const debtEbitda = (f?.net_debt != null && f?.ebitda && f.ebitda !== 0) ? f.net_debt / f.ebitda : null;
+    const price = stock.last_price ?? stock.avg_price;
+    const positionValue = stock.quantity * (price || 0);
+    const pctPortfolio = totalPortfolio > 0 ? (positionValue / totalPortfolio) * 100 : 0;
 
-    let qualityRaw = 0;
-    let qCount = 0;
-    const roeNorm = normalize(roe, roeRange.min, roeRange.max);
-    if (roe != null) { qualityRaw += roeNorm * 0.4; qCount += 0.4; }
-    const marginNorm = normalize(margin, marginRange.min, marginRange.max);
-    if (margin != null) { qualityRaw += marginNorm * 0.3; qCount += 0.3; }
-    const debtNorm = normalize(debtEbitda, debtEbitdaRange.min, debtEbitdaRange.max, true);
-    if (debtEbitda != null) { qualityRaw += debtNorm * 0.3; qCount += 0.3; }
+    // ---------- QUALITY (25) ----------
+    const roe = asPercent(f?.roe ?? f?.roe_5y ?? null);
+    const margin = asPercent(f?.margin ?? null);
 
-    let qualityScore = qCount > 0 ? (qualityRaw / qCount) * WEIGHTS.quality : 0;
+    const debtEbitda =
+      f?.net_debt != null && f?.ebitda && f.ebitda !== 0 ? f.net_debt / f.ebitda : null;
 
-    // Penalties
-    if (roe != null && roe > 40 && debtEbitda != null && debtEbitda > 3) {
-      qualityScore *= 0.9;
-      alerts.push('ROE alto com dívida elevada – redutor aplicado');
-    }
+    const roeS = scoreHigherBetter(roe, BENCH.roe.bad, BENCH.roe.ok, BENCH.roe.good, 0.55);
+    const marginS = scoreHigherBetter(margin, BENCH.margin.bad, BENCH.margin.ok, BENCH.margin.good, 0.50);
+    const debtS = scoreLowerBetter(debtEbitda, BENCH.debtEbitda.good, BENCH.debtEbitda.ok, BENCH.debtEbitda.bad, 0.55);
+
+    let quality01 = roeS * 0.45 + marginS * 0.25 + debtS * 0.30;
+
     if (roe != null && roe < 5) {
-      qualityScore *= 0.5;
-      alerts.push('ROE muito baixo (<5%) – score limitado');
+      quality01 *= 0.75;
+      alerts.push('ROE muito baixo (<5%) – qualidade penalizada');
+    }
+    if (debtEbitda != null && debtEbitda > 4) {
+      quality01 *= 0.80;
+      alerts.push('Dívida/EBITDA muito alta (>4x) – qualidade penalizada');
     }
 
-    // -- GROWTH (20) --
-    const revenueGrowth = f?.revenue_growth ?? null;
-    const payout = f?.payout ?? null;
-    const sustainableGrowth = (roe != null && payout != null) ? (1 - payout / 100) * (roe / 100) * 100 : null;
+    const qualityScore = quality01 * WEIGHTS.quality;
 
-    let growthRaw = 0;
-    let gCount = 0;
-    if (sustainableGrowth != null) { growthRaw += clamp01(sustainableGrowth / 30) * 0.5; gCount += 0.5; }
-    if (revenueGrowth != null) { growthRaw += normalize(revenueGrowth, revenueGrowthRange.min, revenueGrowthRange.max) * 0.5; gCount += 0.5; }
+    // ---------- GROWTH (20) ----------
+    const payout = f?.payout ?? null; // %
+    const revGrowth = asPercent(f?.revenue_growth ?? null);
 
-    let growthScore = gCount > 0 ? (growthRaw / gCount) * WEIGHTS.growth : 0;
+    // g sustentável (%): ROE * (1 - payout)
+    const sustainableGrowth = roe != null && payout != null ? roe * (1 - payout / 100) : null;
 
-    if (revenueGrowth != null && sustainableGrowth != null && revenueGrowth > sustainableGrowth + 5) {
-      growthScore *= 0.8;
-      alerts.push('Crescimento possivelmente insustentável');
+    const revS = scoreHigherBetter(revGrowth, BENCH.revGrowth.bad, BENCH.revGrowth.ok, BENCH.revGrowth.good, 0.50);
+    const susS = scoreHigherBetter(sustainableGrowth, 3, 8, 15, 0.55);
+
+    let growth01 = susS * 0.55 + revS * 0.45;
+
+    if (revGrowth != null && sustainableGrowth != null && revGrowth > sustainableGrowth + 8) {
+      growth01 *= 0.85;
+      alerts.push('Crescimento acima do sustentável – revisar premissas');
     }
 
-    // -- VALUATION (25) --
+    const growthScore = growth01 * WEIGHTS.growth;
+
+    // ---------- VALUATION (25) ----------
     const pe = f?.pe_ratio ?? null;
     const pb = f?.pb_ratio ?? null;
+    const evEbitda = f?.ev != null && f?.ebitda && f.ebitda !== 0 ? f.ev / f.ebitda : null;
 
-    let valRaw = 0;
-    let vCount = 0;
-    // P/L (lower is better)
-    if (pe != null && pe > 0) { valRaw += normalize(pe, peRange.min, peRange.max, true) * 0.4; vCount += 0.4; }
-    // P/VP (lower is better)
-    if (pb != null && pb > 0) { valRaw += normalize(pb, pbRange.min, pbRange.max, true) * 0.3; vCount += 0.3; }
-    // EV/EBITDA (lower is better)
-    const evEbitda = (f?.ev != null && f?.ebitda && f.ebitda !== 0) ? f.ev / f.ebitda : null;
-    if (evEbitda != null) { valRaw += normalize(evEbitda, evEbitdaRange.min, evEbitdaRange.max, true) * 0.3; vCount += 0.3; }
+    const peS = scoreLowerBetter(pe, BENCH.pe.good, BENCH.pe.ok, BENCH.pe.bad, 0.55);
+    const pbS = scoreLowerBetter(pb, BENCH.pb.good, BENCH.pb.ok, BENCH.pb.bad, 0.55);
+    const evS = scoreLowerBetter(evEbitda, BENCH.evEbitda.good, BENCH.evEbitda.ok, BENCH.evEbitda.bad, 0.55);
 
-    let valuationScore = vCount > 0 ? (valRaw / vCount) * WEIGHTS.valuation : 0;
+    let valuation01 = peS * 0.40 + pbS * 0.25 + evS * 0.35;
 
-    // Penalty: price above avg (no margin of safety)
-    const price = stock.last_price ?? stock.avg_price;
-    if (stock.avg_price > 0 && price > stock.avg_price * 1.5) {
-      alerts.push('Valuation alto – preço distante do preço médio');
+    if (stock.avg_price > 0 && price > stock.avg_price * 1.6) {
+      alerts.push('Preço muito acima do PM – pode haver esticamento (atenção)');
     }
 
-    // Cap rule: great valuation but weak quality
-    if (valuationScore > 20 && qualityScore < 10) {
-      valuationScore = Math.min(valuationScore, 0.7 * WEIGHTS.valuation);
-      alerts.push('Valuation bom mas qualidade fraca – score limitado a 70% do pilar');
+    // valuation excelente não pode maquiar qualidade muito fraca
+    if (valuation01 > 0.80 && quality01 < 0.35) {
+      valuation01 = Math.min(valuation01, 0.70);
+      alerts.push('Valuation bom, mas qualidade fraca – valuation limitado');
     }
 
-    // -- RISK (15) --
-    const changePercent = stock.change_percent ?? 0;
-    const vol = Math.abs(changePercent);
-    const pctPortfolio = totalPortfolio > 0 ? (stock.quantity * price) / totalPortfolio * 100 : 0;
+    const valuationScore = valuation01 * WEIGHTS.valuation;
 
-    let riskRaw = 0;
-    let rCount = 0;
+    // ---------- RISK (15) ----------
+    // change_percent é diário -> proxy leve (não destruir score)
+    const dayMove = Math.abs(stock.change_percent ?? 0);
+    const moveS = scoreLowerBetter(dayMove, 0.8, 2.0, 6.0, 0.55);
 
-    // Volatility proxy (lower is better)
-    riskRaw += clamp01(1 - vol / 10) * 0.3; rCount += 0.3;
+    const concS = scoreLowerBetter(pctPortfolio, 6, 12, 25, 0.60);
+    const debtRiskS = debtS;
 
-    // Debt/EBITDA (lower is better)
-    if (debtEbitda != null) { riskRaw += debtNorm * 0.4; rCount += 0.4; }
-
-    // Concentration (lower is better)
-    riskRaw += clamp01(1 - pctPortfolio / 30) * 0.3; rCount += 0.3;
-
-    let riskScore = rCount > 0 ? (riskRaw / rCount) * WEIGHTS.risk : 0;
+    let risk01 = moveS * 0.35 + debtRiskS * 0.30 + concS * 0.35;
 
     if (pctPortfolio > 15) {
-      riskScore *= 0.8;
-      alerts.push(`Concentração excessiva: ${pctPortfolio.toFixed(1)}% da carteira`);
+      risk01 *= 0.85;
+      alerts.push(`Concentração alta: ${pctPortfolio.toFixed(1)}% da carteira`);
     }
 
-    // -- DIVIDENDS (15) --
-    const dy = f?.dividend_yield ?? (stock.dy_12m ?? null);
-    const payoutVal = f?.payout ?? null;
+    const riskScore = risk01 * WEIGHTS.risk;
 
-    let divRaw = 0;
-    let dCount = 0;
+    // ---------- DIVIDENDS (15) ----------
+    const dy = asPercent(f?.dividend_yield ?? stock.dy_12m ?? null);
 
-    if (dy != null) { divRaw += normalize(dy, dyRange.min, dyRange.max) * 0.5; dCount += 0.5; }
-    if (payoutVal != null) {
-      // Ideal payout 30-70%
-      const payoutScore = payoutVal >= 30 && payoutVal <= 70 ? 1 : payoutVal >= 20 && payoutVal <= 80 ? 0.7 : 0.3;
-      divRaw += payoutScore * 0.5;
-      dCount += 0.5;
+    const payoutScore =
+      payout == null ? 0.55 :
+      payout >= 30 && payout <= 70 ? 1 :
+      payout >= 20 && payout <= 80 ? 0.75 :
+      0.40;
+
+    const dyS = scoreHigherBetter(dy, BENCH.dy.bad, BENCH.dy.ok, BENCH.dy.good, 0.50);
+
+    let dividends01 = dyS * 0.60 + payoutScore * 0.40;
+
+    if (payout != null && payout > 95) {
+      dividends01 *= 0.80;
+      alerts.push('Payout muito alto (>95%) – dividendo pode ser insustentável');
     }
 
-    let dividendsScore = dCount > 0 ? (divRaw / dCount) * WEIGHTS.dividends : 0;
+    const dividendsScore = dividends01 * WEIGHTS.dividends;
 
-    if (payoutVal != null && payoutVal > 90) {
-      dividendsScore *= 0.7;
-      alerts.push('Payout acima de 90% – sustentabilidade em risco');
-    }
-
-    // -- TOTAL --
+    // ---------- TOTAL ----------
     let total = qualityScore + growthScore + valuationScore + riskScore + dividendsScore;
 
-    // Global cap: low ROE caps max score
-    if (roe != null && roe < 5) {
-      total = Math.min(total, 45);
-    }
+    // cap global mais realista: ROE MUITO baixo impede “excelente”, mas não mata tudo
+    if (roe != null && roe < 5) total = Math.min(total, 60);
 
-    // Growth >= discount rate alert
-    if (sustainableGrowth != null && sustainableGrowth >= 12) {
-      alerts.push('Crescimento ≥ taxa de desconto – verificar premissas');
+    if (sustainableGrowth != null && sustainableGrowth >= 20) {
+      alerts.push('Crescimento sustentável muito alto (≥20%) – checar ROE/payout (outlier?)');
     }
 
     map.set(stock.id, {
-      quality: Math.round(qualityScore * 100 / WEIGHTS.quality) / 100 * WEIGHTS.quality,
-      growth: Math.round(growthScore * 100 / WEIGHTS.growth) / 100 * WEIGHTS.growth,
-      valuation: Math.round(valuationScore * 100 / WEIGHTS.valuation) / 100 * WEIGHTS.valuation,
-      risk: Math.round(riskScore * 100 / WEIGHTS.risk) / 100 * WEIGHTS.risk,
-      dividends: Math.round(dividendsScore * 100 / WEIGHTS.dividends) / 100 * WEIGHTS.dividends,
+      quality: Math.round(qualityScore * 10) / 10,
+      growth: Math.round(growthScore * 10) / 10,
+      valuation: Math.round(valuationScore * 10) / 10,
+      risk: Math.round(riskScore * 10) / 10,
+      dividends: Math.round(dividendsScore * 10) / 10,
       total: Math.round(total * 10) / 10,
       alerts,
     });
   }
+
   return map;
 }
 
+// ---- Status / Cores (calibrado p/ Brasil) ----
 function scoreColor(score: number): string {
-  if (score >= 80) return 'text-emerald-500';
-  if (score >= 65) return 'text-blue-500';
-  if (score >= 50) return 'text-yellow-500';
+  if (score >= 85) return 'text-emerald-500';
+  if (score >= 70) return 'text-sky-500';
+  if (score >= 55) return 'text-blue-500';
+  if (score >= 40) return 'text-yellow-500';
   return 'text-red-500';
 }
 
 function scoreBadge(score: number) {
-  if (score >= 80) return <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30">Excelente</Badge>;
-  if (score >= 65) return <Badge className="bg-blue-500/15 text-blue-500 border-blue-500/30">Bom</Badge>;
-  if (score >= 50) return <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30">Regular</Badge>;
+  if (score >= 85) return <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30">Excelente</Badge>;
+  if (score >= 70) return <Badge className="bg-sky-500/15 text-sky-500 border-sky-500/30">Muito bom</Badge>;
+  if (score >= 55) return <Badge className="bg-blue-500/15 text-blue-500 border-blue-500/30">Bom</Badge>;
+  if (score >= 40) return <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30">Regular</Badge>;
   return <Badge className="bg-red-500/15 text-red-500 border-red-500/30">Fraco</Badge>;
 }
 
@@ -234,27 +247,29 @@ const ACOES_SLUG = 'acoes';
 const Score = () => {
   const { data: portfolio = [], isLoading } = usePortfolio();
   const { data: classes = [] } = useAssetClasses();
-  const { data: targets = [] } = useClassTargets();
+  const { data: targets = [] } = useClassTargets(); // mantido (mesmo que não use agora)
   const saveSnapshot = useSaveScoreSnapshot();
 
   const acoesClassId = classes.find(c => c.slug === ACOES_SLUG)?.id;
 
-  const stocks = useMemo(() =>
-    portfolio.filter(p => p.class_id === acoesClassId && p.quantity > 0),
+  const stocks = useMemo(
+    () => portfolio.filter(p => p.class_id === acoesClassId && p.quantity > 0),
     [portfolio, acoesClassId]
   );
 
-  const totalPortfolio = useMemo(() =>
-    portfolio.reduce((s, p) => s + p.quantity * (p.last_price ?? p.avg_price), 0),
+  const totalPortfolio = useMemo(
+    () => portfolio.reduce((s, p) => s + p.quantity * (p.last_price ?? p.avg_price), 0),
     [portfolio]
   );
 
   const scoreMap = useMemo(() => computeScores(stocks, totalPortfolio), [stocks, totalPortfolio]);
 
-  const ranking = useMemo(() =>
-    stocks.map(s => ({ ...s, score: scoreMap.get(s.id)! }))
-      .filter(s => s.score)
-      .sort((a, b) => b.score.total - a.score.total),
+  const ranking = useMemo(
+    () =>
+      stocks
+        .map(s => ({ ...s, score: scoreMap.get(s.id)! }))
+        .filter(s => s.score)
+        .sort((a, b) => b.score.total - a.score.total),
     [stocks, scoreMap]
   );
 
@@ -265,13 +280,15 @@ const Score = () => {
 
   const { data: history = [] } = useScoreHistory(selectedId || ranking[0]?.id);
 
-  const radarData = selectedScore ? [
-    { pillar: 'Qualidade', value: (selectedScore.quality / WEIGHTS.quality) * 100, fullMark: 100 },
-    { pillar: 'Crescimento', value: (selectedScore.growth / WEIGHTS.growth) * 100, fullMark: 100 },
-    { pillar: 'Valuation', value: (selectedScore.valuation / WEIGHTS.valuation) * 100, fullMark: 100 },
-    { pillar: 'Risco', value: (selectedScore.risk / WEIGHTS.risk) * 100, fullMark: 100 },
-    { pillar: 'Dividendos', value: (selectedScore.dividends / WEIGHTS.dividends) * 100, fullMark: 100 },
-  ] : [];
+  const radarData = selectedScore
+    ? [
+        { pillar: 'Qualidade', value: (selectedScore.quality / WEIGHTS.quality) * 100, fullMark: 100 },
+        { pillar: 'Crescimento', value: (selectedScore.growth / WEIGHTS.growth) * 100, fullMark: 100 },
+        { pillar: 'Valuation', value: (selectedScore.valuation / WEIGHTS.valuation) * 100, fullMark: 100 },
+        { pillar: 'Risco', value: (selectedScore.risk / WEIGHTS.risk) * 100, fullMark: 100 },
+        { pillar: 'Dividendos', value: (selectedScore.dividends / WEIGHTS.dividends) * 100, fullMark: 100 },
+      ]
+    : [];
 
   const historyChart = history.map(h => ({
     date: new Date(h.snapshot_date).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
@@ -306,14 +323,24 @@ const Score = () => {
           </h1>
           <p className="text-sm text-muted-foreground">Análise quantitativa de ações (0–100)</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={handleSaveSnapshot} disabled={saveSnapshot.isPending || ranking.length === 0}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={handleSaveSnapshot}
+          disabled={saveSnapshot.isPending || ranking.length === 0}
+        >
           <Save className="h-4 w-4" />
           Salvar Snapshot
         </Button>
       </div>
 
       {stocks.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">Nenhuma ação encontrada na carteira.</CardContent></Card>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            Nenhuma ação encontrada na carteira.
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* Radar + Score Detail */}
@@ -323,10 +350,14 @@ const Score = () => {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Radar do Ativo</CardTitle>
                   <Select value={selectedId || ranking[0]?.id || ''} onValueChange={setSelectedId}>
-                    <SelectTrigger className="w-40"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
                     <SelectContent>
                       {ranking.map(r => (
-                        <SelectItem key={r.id} value={r.id}>{r.ticker}</SelectItem>
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.ticker}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -340,7 +371,14 @@ const Score = () => {
                         <PolarGrid stroke="hsl(var(--border))" />
                         <PolarAngleAxis dataKey="pillar" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                         <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar name={selectedTicker} dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} strokeWidth={2} />
+                        <Radar
+                          name={selectedTicker}
+                          dataKey="value"
+                          stroke="hsl(var(--primary))"
+                          fill="hsl(var(--primary))"
+                          fillOpacity={0.25}
+                          strokeWidth={2}
+                        />
                       </RadarChart>
                     </ResponsiveContainer>
                   </div>
@@ -351,7 +389,9 @@ const Score = () => {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle className="text-base">Score Total</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-base">Score Total</CardTitle>
+              </CardHeader>
               <CardContent>
                 {selectedScore ? (
                   <div className="space-y-4">
@@ -362,6 +402,7 @@ const Score = () => {
                       <span className="text-2xl text-muted-foreground"> / 100</span>
                       <div className="mt-2">{scoreBadge(selectedScore.total)}</div>
                     </div>
+
                     <div className="space-y-2 mt-6">
                       {([
                         ['Qualidade', selectedScore.quality, WEIGHTS.quality],
@@ -378,10 +419,13 @@ const Score = () => {
                               style={{ width: `${(val / max) * 100}%` }}
                             />
                           </div>
-                          <span className="text-xs font-mono w-14 text-right">{val.toFixed(1)} / {max}</span>
+                          <span className="text-xs font-mono w-14 text-right">
+                            {val.toFixed(1)} / {max}
+                          </span>
                         </div>
                       ))}
                     </div>
+
                     {/* Alerts for selected */}
                     {selectedScore.alerts.length > 0 && (
                       <div className="mt-4 space-y-1">
@@ -405,7 +449,9 @@ const Score = () => {
           {/* Historical Chart */}
           {historyChart.length > 1 && (
             <Card>
-              <CardHeader><CardTitle className="text-base">Histórico de Score – {selectedTicker}</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-base">Histórico de Score – {selectedTicker}</CardTitle>
+              </CardHeader>
               <CardContent>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
@@ -413,7 +459,14 @@ const Score = () => {
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="date" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                       <YAxis domain={[0, 100]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
-                      <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))' }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                          color: 'hsl(var(--foreground))',
+                        }}
+                      />
                       <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -424,7 +477,9 @@ const Score = () => {
 
           {/* Ranking Table */}
           <Card>
-            <CardHeader><CardTitle className="text-base">Ranking da Carteira</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Ranking da Carteira</CardTitle>
+            </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
