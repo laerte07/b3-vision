@@ -53,8 +53,8 @@ Deno.serve(async (req) => {
     const tickers = assets.map((a: any) => a.ticker).join(",");
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
 
-    // Fetch with extended modules for fundamentals
-    const brapiUrl = `https://brapi.dev/api/quote/${tickers}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData`;
+    // Fetch with extended modules for fundamentals + dividends
+    const brapiUrl = `https://brapi.dev/api/quote/${tickers}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData,dividendsData`;
     const brapiRes = await fetch(brapiUrl);
     const brapiData = await brapiRes.json();
 
