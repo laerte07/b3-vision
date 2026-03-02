@@ -43,66 +43,126 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, isNaN(v) ? 0 : v));
 }
 
-// Converte para % quando a API vier como decimal (0.18) ou % (18)
-function asPercent(x: number | null | undefined): number | null {
+// Heurística: 0.18 => 18% | 18 => 18%
+function asPercent(x: any): number | null {
   if (x == null) return null;
-  if (Math.abs(x) <= 1.5) return x * 100; // heurística: 0..1.5 => decimal
-  return x;
+  const n = typeof x === 'string' ? Number(x.replace(',', '.')) : Number(x);
+  if (!isFinite(n)) return null;
+  if (Math.abs(n) <= 1.5) return n * 100;
+  return n;
 }
 
-// Curvas suaves para métricas “menor é melhor”
+function asNumber(x: any): number | null {
+  if (x == null) return null;
+  const n = typeof x === 'string' ? Number(x.replace(',', '.')) : Number(x);
+  return isFinite(n) ? n : null;
+}
+
+// Curvas suaves
 function scoreLowerBetter(value: number | null, good: number, ok: number, bad: number, fallback = 0.55) {
-  if (value == null || value <= 0) return clamp01(fallback);
+  if (value == null || !isFinite(value) || value <= 0) return clamp01(fallback);
   if (value <= good) return 1;
   if (value <= ok) return 1 - (value - good) * (0.3 / (ok - good)); // 1..0.7
   if (value <= bad) return 0.7 - (value - ok) * (0.5 / (bad - ok)); // 0.7..0.2
   return 0.2;
 }
-
-// Curvas suaves para métricas “maior é melhor”
 function scoreHigherBetter(value: number | null, bad: number, ok: number, good: number, fallback = 0.55) {
-  if (value == null) return clamp01(fallback);
+  if (value == null || !isFinite(value)) return clamp01(fallback);
   if (value >= good) return 1;
-  if (value >= ok) return 0.7 + (value - ok) * (0.3 / (good - ok)); // 0.7..1
-  if (value >= bad) return 0.2 + (value - bad) * (0.5 / (ok - bad)); // 0.2..0.7
+  if (value >= ok) return 0.7 + (value - ok) * (0.3 / (good - ok));
+  if (value >= bad) return 0.2 + (value - bad) * (0.5 / (ok - bad));
   return 0.2;
 }
 
-/**
- * Benchmarks realistas (Brasil) – pode evoluir p/ setor depois.
- * Ideia: pontuar por “mundo real”, não pelo min/max da carteira (amostra pequena distorce).
- */
+// Benchmarks BR (genérico). Depois você pode “setorizar”.
 const BENCH = {
-  roe: { bad: 5, ok: 12, good: 20 }, // %
-  margin: { bad: 5, ok: 12, good: 20 }, // %
-  debtEbitda: { good: 0.8, ok: 2.0, bad: 4.0 }, // x (menor melhor)
-  revGrowth: { bad: -5, ok: 5, good: 15 }, // % a.a.
-  // múltiplos (menor melhor)
+  roe: { bad: 5, ok: 12, good: 20 },          // %
+  margin: { bad: 5, ok: 12, good: 20 },       // %
+  debtEbitda: { good: 0.8, ok: 2.0, bad: 4.0 }, // x
+  revGrowth: { bad: -5, ok: 5, good: 15 },    // %
+  epsGrowth: { bad: -5, ok: 8, good: 18 },    // %
   pe: { good: 6, ok: 12, bad: 25 },
   pb: { good: 0.8, ok: 1.8, bad: 4.0 },
   evEbitda: { good: 4, ok: 8, bad: 15 },
-  // dividendos
-  dy: { bad: 2, ok: 5, good: 8 }, // %
+  dy: { bad: 2, ok: 5, good: 8 },             // %
 };
 
+// ---- getters robustos (vários aliases) ----
+function pickFirst<T>(...vals: (T | null | undefined)[]): T | null {
+  for (const v of vals) if (v != null) return v as T;
+  return null;
+}
+
+function getROE(f: any): number | null {
+  return asPercent(pickFirst(f?.roe, f?.roe_5y, f?.roe5y, f?.returnOnEquity));
+}
+
+function getMargin(f: any): number | null {
+  return asPercent(pickFirst(f?.margin, f?.net_margin, f?.netMargin, f?.profit_margin, f?.profitMargin));
+}
+
+function getPayout(f: any): number | null {
+  return asPercent(pickFirst(f?.payout, f?.payout_ratio, f?.payoutRatio));
+}
+
+function getDividendYield(f: any, stock: any): number | null {
+  // tenta em vários campos comuns
+  const raw = pickFirst(
+    f?.dividend_yield,
+    f?.dividendYield,
+    f?.dy,
+    f?.dy_12m,
+    stock?.dy_12m,
+    stock?.dividend_yield
+  );
+  return asPercent(raw);
+}
+
+function getRevenueGrowth(f: any): number | null {
+  return asPercent(pickFirst(f?.revenue_growth, f?.revenueGrowth, f?.sales_growth, f?.salesGrowth));
+}
+
+function getEpsGrowth(f: any): number | null {
+  // nomes possíveis: earningsGrowth, epsGrowth, lucro_por_acao_growth etc.
+  return asPercent(pickFirst(f?.eps_growth, f?.epsGrowth, f?.earnings_growth, f?.earningsGrowth));
+}
+
+function getPE(f: any): number | null {
+  return asNumber(pickFirst(f?.pe_ratio, f?.peRatio, f?.pe));
+}
+function getPB(f: any): number | null {
+  return asNumber(pickFirst(f?.pb_ratio, f?.pbRatio, f?.pb));
+}
+function getDebtEbitda(f: any): number | null {
+  const nd = asNumber(pickFirst(f?.net_debt, f?.netDebt, f?.net_debt_value));
+  const e = asNumber(pickFirst(f?.ebitda, f?.ebitda_value));
+  if (nd == null || e == null || e === 0) return null;
+  return nd / e;
+}
+function getEvEbitda(f: any): number | null {
+  const ev = asNumber(pickFirst(f?.ev, f?.enterprise_value, f?.enterpriseValue));
+  const e = asNumber(pickFirst(f?.ebitda, f?.ebitda_value));
+  if (ev == null || e == null || e === 0) return null;
+  return ev / e;
+}
+
+// ---- core ----
 function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<string, PillarScore> {
   const map = new Map<string, PillarScore>();
   if (stocks.length === 0) return map;
 
   for (const stock of stocks) {
-    const f = stock.fundamentals;
+    const f: any = stock.fundamentals ?? {};
     const alerts: string[] = [];
 
-    const price = stock.last_price ?? stock.avg_price;
-    const positionValue = stock.quantity * (price || 0);
+    const price = stock.last_price ?? stock.avg_price ?? 0;
+    const positionValue = stock.quantity * price;
     const pctPortfolio = totalPortfolio > 0 ? (positionValue / totalPortfolio) * 100 : 0;
 
-    // ---------- QUALITY (25) ----------
-    const roe = asPercent(f?.roe ?? f?.roe_5y ?? null);
-    const margin = asPercent(f?.margin ?? null);
-
-    const debtEbitda =
-      f?.net_debt != null && f?.ebitda && f.ebitda !== 0 ? f.net_debt / f.ebitda : null;
+    // ---------------- QUALITY ----------------
+    const roe = getROE(f);
+    const margin = getMargin(f);
+    const debtEbitda = getDebtEbitda(f);
 
     const roeS = scoreHigherBetter(roe, BENCH.roe.bad, BENCH.roe.ok, BENCH.roe.good, 0.55);
     const marginS = scoreHigherBetter(margin, BENCH.margin.bad, BENCH.margin.ok, BENCH.margin.good, 0.50);
@@ -110,52 +170,70 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
 
     let quality01 = roeS * 0.45 + marginS * 0.25 + debtS * 0.30;
 
+    if (roe == null && margin == null && debtEbitda == null) {
+      alerts.push('Qualidade: dados insuficientes (usando neutro)');
+    }
     if (roe != null && roe < 5) {
-      quality01 *= 0.75;
-      alerts.push('ROE muito baixo (<5%) – qualidade penalizada');
+      quality01 *= 0.80;
+      alerts.push('ROE muito baixo (<5%)');
     }
     if (debtEbitda != null && debtEbitda > 4) {
-      quality01 *= 0.80;
-      alerts.push('Dívida/EBITDA muito alta (>4x) – qualidade penalizada');
+      quality01 *= 0.85;
+      alerts.push('Dívida/EBITDA muito alta (>4x)');
     }
 
     const qualityScore = quality01 * WEIGHTS.quality;
 
-    // ---------- GROWTH (20) ----------
-    const payout = f?.payout ?? null; // %
-    const revGrowth = asPercent(f?.revenue_growth ?? null);
+    // ---------------- GROWTH ----------------
+    const payout = getPayout(f);
+    const revenueGrowth = getRevenueGrowth(f);
+    const epsGrowth = getEpsGrowth(f);
 
-    // g sustentável (%): ROE * (1 - payout)
-    const sustainableGrowth = roe != null && payout != null ? roe * (1 - payout / 100) : null;
+    const sustainableGrowth =
+      roe != null && payout != null ? roe * (1 - payout / 100) : null;
 
-    const revS = scoreHigherBetter(revGrowth, BENCH.revGrowth.bad, BENCH.revGrowth.ok, BENCH.revGrowth.good, 0.50);
+    // Preferência: revenueGrowth -> epsGrowth -> sustainableGrowth
+    const revS = scoreHigherBetter(revenueGrowth, BENCH.revGrowth.bad, BENCH.revGrowth.ok, BENCH.revGrowth.good, 0.52);
+    const epsS = scoreHigherBetter(epsGrowth, BENCH.epsGrowth.bad, BENCH.epsGrowth.ok, BENCH.epsGrowth.good, 0.52);
     const susS = scoreHigherBetter(sustainableGrowth, 3, 8, 15, 0.55);
 
-    let growth01 = susS * 0.55 + revS * 0.45;
+    let growth01: number;
+    if (revenueGrowth != null) growth01 = revS * 0.60 + susS * 0.40;
+    else if (epsGrowth != null) growth01 = epsS * 0.60 + susS * 0.40;
+    else growth01 = susS; // sem crescimento observado, vai no sustentável
 
-    if (revGrowth != null && sustainableGrowth != null && revGrowth > sustainableGrowth + 8) {
-      growth01 *= 0.85;
+    if (revenueGrowth == null && epsGrowth == null && sustainableGrowth == null) {
+      alerts.push('Crescimento: dados insuficientes (usando neutro)');
+    }
+
+    // Alerta de “crescimento suspeito”
+    if (revenueGrowth != null && sustainableGrowth != null && revenueGrowth > sustainableGrowth + 10) {
+      growth01 *= 0.88;
       alerts.push('Crescimento acima do sustentável – revisar premissas');
     }
 
     const growthScore = growth01 * WEIGHTS.growth;
 
-    // ---------- VALUATION (25) ----------
-    const pe = f?.pe_ratio ?? null;
-    const pb = f?.pb_ratio ?? null;
-    const evEbitda = f?.ev != null && f?.ebitda && f.ebitda !== 0 ? f.ev / f.ebitda : null;
+    // ---------------- VALUATION ----------------
+    const pe = getPE(f);
+    const pb = getPB(f);
+    const evEbitda = getEvEbitda(f);
 
     const peS = scoreLowerBetter(pe, BENCH.pe.good, BENCH.pe.ok, BENCH.pe.bad, 0.55);
     const pbS = scoreLowerBetter(pb, BENCH.pb.good, BENCH.pb.ok, BENCH.pb.bad, 0.55);
     const evS = scoreLowerBetter(evEbitda, BENCH.evEbitda.good, BENCH.evEbitda.ok, BENCH.evEbitda.bad, 0.55);
 
+    // se não tiver nenhum múltiplo, valuation neutro + alerta
+    if (pe == null && pb == null && evEbitda == null) {
+      alerts.push('Valuation: dados insuficientes (usando neutro)');
+    }
+
     let valuation01 = peS * 0.40 + pbS * 0.25 + evS * 0.35;
 
     if (stock.avg_price > 0 && price > stock.avg_price * 1.6) {
-      alerts.push('Preço muito acima do PM – pode haver esticamento (atenção)');
+      alerts.push('Preço muito acima do PM – possível esticamento');
     }
-
-    // valuation excelente não pode maquiar qualidade muito fraca
+    // valuation excelente não pode “disfarçar” qualidade fraca
     if (valuation01 > 0.80 && quality01 < 0.35) {
       valuation01 = Math.min(valuation01, 0.70);
       alerts.push('Valuation bom, mas qualidade fraca – valuation limitado');
@@ -163,26 +241,24 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
 
     const valuationScore = valuation01 * WEIGHTS.valuation;
 
-    // ---------- RISK (15) ----------
-    // change_percent é diário -> proxy leve (não destruir score)
+    // ---------------- RISK ----------------
     const dayMove = Math.abs(stock.change_percent ?? 0);
     const moveS = scoreLowerBetter(dayMove, 0.8, 2.0, 6.0, 0.55);
-
     const concS = scoreLowerBetter(pctPortfolio, 6, 12, 25, 0.60);
-    const debtRiskS = debtS;
 
-    let risk01 = moveS * 0.35 + debtRiskS * 0.30 + concS * 0.35;
+    let risk01 = moveS * 0.35 + debtS * 0.30 + concS * 0.35;
 
     if (pctPortfolio > 15) {
-      risk01 *= 0.85;
+      risk01 *= 0.88;
       alerts.push(`Concentração alta: ${pctPortfolio.toFixed(1)}% da carteira`);
     }
 
     const riskScore = risk01 * WEIGHTS.risk;
 
-    // ---------- DIVIDENDS (15) ----------
-    const dy = asPercent(f?.dividend_yield ?? stock.dy_12m ?? null);
+    // ---------------- DIVIDENDS ----------------
+    const dy = getDividendYield(f, stock);
 
+    // payoutScore neutro se payout não existir
     const payoutScore =
       payout == null ? 0.55 :
       payout >= 30 && payout <= 70 ? 1 :
@@ -191,24 +267,23 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
 
     const dyS = scoreHigherBetter(dy, BENCH.dy.bad, BENCH.dy.ok, BENCH.dy.good, 0.50);
 
-    let dividends01 = dyS * 0.60 + payoutScore * 0.40;
+    let dividends01 = dyS * 0.65 + payoutScore * 0.35;
 
+    if (dy == null && payout == null) {
+      alerts.push('Dividendos: dados insuficientes (usando neutro)');
+    }
     if (payout != null && payout > 95) {
-      dividends01 *= 0.80;
+      dividends01 *= 0.85;
       alerts.push('Payout muito alto (>95%) – dividendo pode ser insustentável');
     }
 
     const dividendsScore = dividends01 * WEIGHTS.dividends;
 
-    // ---------- TOTAL ----------
+    // ---------------- TOTAL ----------------
     let total = qualityScore + growthScore + valuationScore + riskScore + dividendsScore;
 
-    // cap global mais realista: ROE MUITO baixo impede “excelente”, mas não mata tudo
-    if (roe != null && roe < 5) total = Math.min(total, 60);
-
-    if (sustainableGrowth != null && sustainableGrowth >= 20) {
-      alerts.push('Crescimento sustentável muito alto (≥20%) – checar ROE/payout (outlier?)');
-    }
+    // cap mais realista, não mata “tudo”
+    if (roe != null && roe < 5) total = Math.min(total, 62);
 
     map.set(stock.id, {
       quality: Math.round(qualityScore * 10) / 10,
