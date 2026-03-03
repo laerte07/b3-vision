@@ -266,34 +266,28 @@ export const useRefreshMarket = () => {
 
       return data;
     },
+
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['portfolio'] });
 
-  console.log("RETORNO COMPLETO EDGE FUNCTION:", data);
+      // Debug completo
+      console.log('RETORNO COMPLETO EDGE FUNCTION:', data);
 
-  const ok = Number(data?.ok_count ?? data?.updated ?? 0);
-  const err = Number(data?.error_count ?? 0);
-
-  if (err > 0) {
-    toast.success(`Mercado atualizado: ${ok} ativos OK, ${err} com erro`);
-  } else {
-    toast.success(`Mercado atualizado: ${ok} ativos`);
-  }
-},
-
-      // ✅ novo payload da edge function:
-      // { updated: ok_count, ok_count, error_count, results: [{ok, step, error...}] }
+      // Compatível com payload antigo e novo
       const ok = Number(data?.ok_count ?? data?.updated ?? 0);
       const err = Number(data?.error_count ?? 0);
 
       if (err > 0) {
         toast.success(`Mercado atualizado: ${ok} ativos OK, ${err} com erro`);
-        // útil p/ debug
-        console.log('Erros BRAPI:', data?.results?.filter((r: any) => !r.ok));
+        console.log('Erros BRAPI:', (data?.results ?? []).filter((r: any) => r?.ok === false || r?.error));
       } else {
         toast.success(`Mercado atualizado: ${ok} ativos`);
       }
     },
-    onError: (err: any) => toast.error(`Erro ao atualizar: ${err.message}`),
+
+    onError: (err: any) => {
+      toast.error(`Erro ao atualizar: ${err?.message ?? 'Erro desconhecido'}`);
+      console.error('useRefreshMarket error:', err);
+    },
   });
 };
