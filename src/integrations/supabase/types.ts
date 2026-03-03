@@ -256,6 +256,38 @@ export type Database = {
           },
         ]
       }
+      fundamentals_overrides: {
+        Row: {
+          asset_id: string
+          id: string
+          override_json: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_id: string
+          id?: string
+          override_json?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_id?: string
+          id?: string
+          override_json?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fundamentals_overrides_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       positions: {
         Row: {
           asset_id: string
