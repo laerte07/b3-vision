@@ -269,6 +269,18 @@ export const useRefreshMarket = () => {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['portfolio'] });
 
+  console.log("RETORNO COMPLETO EDGE FUNCTION:", data);
+
+  const ok = Number(data?.ok_count ?? data?.updated ?? 0);
+  const err = Number(data?.error_count ?? 0);
+
+  if (err > 0) {
+    toast.success(`Mercado atualizado: ${ok} ativos OK, ${err} com erro`);
+  } else {
+    toast.success(`Mercado atualizado: ${ok} ativos`);
+  }
+},
+
       // ✅ novo payload da edge function:
       // { updated: ok_count, ok_count, error_count, results: [{ok, step, error...}] }
       const ok = Number(data?.ok_count ?? data?.updated ?? 0);
