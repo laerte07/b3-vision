@@ -70,10 +70,11 @@ Deno.serve(async (req) => {
 
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
     if (!brapiToken) {
-      return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN env" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+  return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN" }), {
+    status: 500,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
     }
 
     // service role para atualizar caches
@@ -91,7 +92,8 @@ Deno.serve(async (req) => {
         const now = new Date().toISOString();
 
         // ---- 1) tenta com modules (fundamentos + dividendos) ----
-        let brapiUrl = `https://brapi.dev/api/quote/${asset.ticker}?token=${brapiToken}&modules=${modules}`;
+        const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
+        const brapiUrl = `https://brapi.dev/api/quote/${asset.ticker}?token=${brapiToken}&modules=${modules}`;
         let brapiRes = await fetch(brapiUrl);
 
         // fallback: se modules falhar (plano), tenta sem modules só para preço
