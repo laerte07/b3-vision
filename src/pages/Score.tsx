@@ -23,7 +23,7 @@ interface PillarScore {
   risk: number | null;
   dividends: number | null;
   total: number;                 // 0-100
-  effectiveWeights: typeof WEIGHTS; // pesos efetivos após redistribuição
+  effectiveWeights: Record<string, number>;
   coverage: number;              // 0-1 (quanto dado existe)
   alerts: string[];
 }
@@ -60,12 +60,12 @@ function redistributeWeights(base: typeof WEIGHTS, pillars: Record<keyof typeof 
   const availableWeight = available.reduce((s, k) => s + base[k], 0);
 
   // Redistribui o peso faltante proporcionalmente aos pilares com dado
-  const eff = { ...base } as typeof WEIGHTS;
-  for (const k of missing) eff[k] = 0 as any;
+  const eff: Record<keyof typeof WEIGHTS, number> = { ...base };
+  for (const k of missing) eff[k] = 0;
 
   for (const k of available) {
     const add = (base[k] / availableWeight) * missingWeight;
-    eff[k] = (base[k] + add) as any;
+    eff[k] = base[k] + add;
   }
 
   // factor usado só pra referência; soma final dos pesos deve dar 100

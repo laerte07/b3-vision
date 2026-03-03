@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, BarChart3 } from 'lucide-react';
+import FundamentalsDrawer from '@/components/FundamentalsDrawer';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { usePortfolio, useAddAsset, useUpdatePosition, useDeleteAsset, useRefreshMarket, PortfolioAsset } from '@/hooks/usePortfolio';
 import { formatBRL, formatPct } from '@/lib/format';
@@ -24,6 +25,7 @@ const Portfolio = () => {
 
   const [addOpen, setAddOpen] = useState(false);
   const [editAsset, setEditAsset] = useState<PortfolioAsset | null>(null);
+  const [fundAsset, setFundAsset] = useState<PortfolioAsset | null>(null);
   const [form, setForm] = useState({ ticker: '', name: '', class_id: '', quantity: '', avg_price: '' });
 
   const totalPortfolio = portfolio.reduce((s, p) => s + p.quantity * (p.last_price ?? p.avg_price), 0);
@@ -178,6 +180,7 @@ const Portfolio = () => {
                             <TableCell>
                               <div className="flex gap-1">
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(pos)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setFundAsset(pos)}><BarChart3 className="h-3.5 w-3.5" /></Button>
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
                                   <AlertDialogContent>
@@ -226,6 +229,8 @@ const Portfolio = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <FundamentalsDrawer asset={fundAsset} open={!!fundAsset} onOpenChange={open => { if (!open) setFundAsset(null); }} />
     </div>
   );
 };
