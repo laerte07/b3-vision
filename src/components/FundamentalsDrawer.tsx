@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter, DrawerClose } from '@/components/ui/drawer';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,21 +161,19 @@ export default function FundamentalsDrawer({ asset, open, onOpenChange }: Props)
   const tabFields = (tab: string) => FIELDS.filter(f => f.tab === tab);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85vh]">
-        <DrawerHeader className="flex items-center justify-between">
-          <div>
-            <DrawerTitle className="flex items-center gap-2">
-              Fundamentos — {asset.ticker}
-              <Badge variant="outline" className={badge.className}>{badge.label} ({coverage}%)</Badge>
-            </DrawerTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              Edite manualmente ou use os dados da API. Manual tem prioridade.
-            </p>
-          </div>
-        </DrawerHeader>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-[780px] flex flex-col">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            Fundamentos — {asset.ticker}
+            <Badge variant="outline" className={badge.className}>{badge.label} ({coverage}%)</Badge>
+          </SheetTitle>
+          <p className="text-xs text-muted-foreground">
+            Edite manualmente ou use os dados da API. Manual tem prioridade.
+          </p>
+        </SheetHeader>
 
-        <div className="px-4 pb-4 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto py-4">
           <Tabs defaultValue="geral">
             <TabsList className="mb-3 w-full">
               <TabsTrigger value="geral" className="flex-1">Geral</TabsTrigger>
@@ -191,18 +189,18 @@ export default function FundamentalsDrawer({ asset, open, onOpenChange }: Props)
           </Tabs>
         </div>
 
-        <DrawerFooter className="flex-row gap-2">
+        <SheetFooter className="flex-row gap-2 pt-4 border-t">
           <Button onClick={handleSave} disabled={isPending} className="flex-1 gap-2">
             <Save className="h-4 w-4" /> {isPending ? 'Salvando...' : 'Salvar'}
           </Button>
           <Button variant="outline" onClick={handleResetAll} disabled={isPending} className="gap-2">
             <RotateCcw className="h-4 w-4" /> Restaurar Todos
           </Button>
-          <DrawerClose asChild>
+          <SheetClose asChild>
             <Button variant="ghost" size="icon"><X className="h-4 w-4" /></Button>
-          </DrawerClose>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+          </SheetClose>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
