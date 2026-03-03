@@ -175,13 +175,27 @@ export const useRefreshMarket = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('brapi-quote');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+
+      const { data, error } = await supabase.functions.invoke('brapi-quote', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (error) throw error;
+      // Check if response indicates an error
+      if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['portfolio'] });
-      toast.success(`Mercado atualizado: ${data?.updated ?? 0} ativos`);
+      const failed = data?.results?.filter((r: any) => r.error)?.length ?? 0;
+      const successCount = (data?.updated ?? 0) - failed;
+      if (failed > 0) {
+        toast.success(`Mercado atualizado: ${successCount} ativos OK, ${failed} com erro`);
+      } else {
+        toast.success(`Mercado atualizado: ${data?.updated ?? 0} ativos`);
+      }
     },
     onError: (err: any) => toast.error(`Erro ao atualizar: ${err.message}`),
   });
