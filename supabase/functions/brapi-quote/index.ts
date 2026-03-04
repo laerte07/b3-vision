@@ -18,6 +18,44 @@ function pctFromRatio(v: any): number | null {
   return n * 100;
 }
 
+async function fetchBrapi(ticker: string, brapiToken: string): Promise<{ data: any; raw: string; status: number; limitedPlan: boolean }> {
+  const enc = encodeURIComponent(ticker.trim().toUpperCase());
+
+  // Try with full modules first
+  const fullUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData,dividendsData`;
+  console.log(`BRAPI full URL for ${ticker}:`, fullUrl);
+  const fullRes = await fetch(fullUrl);
+  const fullRaw = await fullRes.text();
+  console.log(`BRAPI full ${ticker}: status=${fullRes.status}, len=${fullRaw.length}`);
+
+  if (fullRes.ok) {
+    const parsed = JSON.parse(fullRaw);
+    return { data: parsed, raw: fullRaw, status: fullRes.status, limitedPlan: false };
+  }
+
+  // Check if it's a modules limitation (HTTP 400)
+  if (fullRes.status === 400) {
+    const isModulesError = fullRaw.includes("MODULES_NOT_AVAILABLE") || fullRaw.includes("modules");
+    if (isModulesError) {
+      console.log(`BRAPI ${ticker}: limited plan detected, retrying without modules`);
+      const simpleUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}`;
+      const simpleRes = await fetch(simpleUrl);
+      const simpleRaw = await simpleRes.text();
+      console.log(`BRAPI simple ${ticker}: status=${simpleRes.status}, len=${simpleRaw.length}`);
+
+      if (simpleRes.ok) {
+        const parsed = JSON.parse(simpleRaw);
+        return { data: parsed, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
+      }
+      // Both failed
+      return { data: null, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
+    }
+  }
+
+  // Non-modules error
+  return { data: null, raw: fullRaw, status: fullRes.status, limitedPlan: false };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -65,7 +103,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ---- BRAPI TOKEN ----
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
     console.log("BRAPI_TOKEN present:", !!brapiToken, "length:", brapiToken?.length ?? 0);
     if (!brapiToken || brapiToken.trim().length < 5) {
@@ -75,65 +112,25 @@ Deno.serve(async (req) => {
       }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---- SELF-TEST with PETR4 ----
-    let debugSelfTest: any = {};
-    try {
-      const testTicker = "PETR4";
-      // Build URL as plain string to avoid %2C encoding of commas
-      const testUrl = `https://brapi.dev/api/quote/${testTicker}?token=${brapiToken}`;
-      console.log("SELF-TEST URL:", testUrl);
-      const testRes = await fetch(testUrl);
-      const testRaw = await testRes.text();
-      console.log("SELF-TEST status:", testRes.status, "body:", testRaw.slice(0, 500));
-      let testData: any = null;
-      try { testData = JSON.parse(testRaw); } catch { /* */ }
-      debugSelfTest = {
-        url: testUrl,
-        httpStatus: testRes.status,
-        rawSnippet: testRaw.slice(0, 500),
-        hasResults: !!testData?.results?.length,
-        resultsLength: testData?.results?.length ?? 0,
-      };
-    } catch (e) {
-      debugSelfTest = { error: (e as Error).message };
-    }
-
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
     const results: any[] = [];
+    let limitedPlanDetected = false;
 
-    // Process assets sequentially to avoid rate limits
     for (const asset of assets) {
       try {
-        const ticker = encodeURIComponent(String(asset.ticker).trim().toUpperCase());
-        // Build URL as plain string - do NOT use searchParams.set for modules
-        // because it encodes commas as %2C which BRAPI rejects with 400
-        const brapiUrl = `https://brapi.dev/api/quote/${ticker}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData,dividendsData`;
+        const { data: brapiData, raw: rawText, status: httpStatus, limitedPlan } = await fetchBrapi(asset.ticker, brapiToken);
 
-        console.log(`BRAPI fetch ${asset.ticker}: ${brapiUrl}`);
-        const brapiRes = await fetch(brapiUrl);
-        const rawText = await brapiRes.text();
-        console.log(`BRAPI ${asset.ticker}: status=${brapiRes.status}, bodyLen=${rawText.length}`);
+        if (limitedPlan) limitedPlanDetected = true;
 
-        if (!brapiRes.ok) {
+        if (!brapiData) {
           results.push({
             ticker: asset.ticker, ok: false, step: "fetch",
-            status: brapiRes.status,
-            error: `HTTP ${brapiRes.status}: ${rawText.slice(0, 300)}`,
-          });
-          continue;
-        }
-
-        let brapiData: any;
-        try {
-          brapiData = JSON.parse(rawText);
-        } catch {
-          results.push({
-            ticker: asset.ticker, ok: false, step: "parse",
-            error: `Invalid JSON: ${rawText.slice(0, 300)}`,
+            status: httpStatus,
+            error: `HTTP ${httpStatus}: ${rawText.slice(0, 300)}`,
           });
           continue;
         }
@@ -149,7 +146,7 @@ Deno.serve(async (req) => {
         if (!brapiData?.results?.length) {
           results.push({
             ticker: asset.ticker, ok: false, step: "no_results",
-            error: `No results array. Body: ${rawText.slice(0, 300)}`,
+            error: `No results. Body: ${rawText.slice(0, 300)}`,
           });
           continue;
         }
@@ -157,10 +154,11 @@ Deno.serve(async (req) => {
         const quote = brapiData.results[0];
         const now = new Date().toISOString();
 
-        // ---- PRICE CACHE ----
+        // ---- PRICE CACHE (always first, always required) ----
+        const lastPrice = quote.regularMarketPrice ?? quote.regularMarketPreviousClose ?? null;
         const priceData = {
           asset_id: asset.id,
-          last_price: quote.regularMarketPrice ?? null,
+          last_price: lastPrice,
           change_percent: quote.regularMarketChangePercent ?? null,
           logo_url: quote.logourl ?? null,
           updated_at: now,
@@ -176,12 +174,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // ---- DIVIDENDS CACHE ----
-        let div12m = 0;
-        let dy12m = 0;
-        const price = safeNum(quote.regularMarketPrice) ?? 0;
-
+        // ---- DIVIDENDS CACHE (only if data available) ----
         if (quote?.dividendsData?.cashDividends?.length) {
+          let div12m = 0;
+          const price = safeNum(quote.regularMarketPrice) ?? 0;
           const oneYearAgo = new Date();
           oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
           const divs = quote.dividendsData.cashDividends.filter((d: any) => {
@@ -190,41 +186,40 @@ Deno.serve(async (req) => {
             return new Date(dt) >= oneYearAgo;
           });
           div12m = divs.reduce((s: number, d: any) => s + (safeNum(d.rate) ?? 0), 0);
-          dy12m = price > 0 ? (div12m / price) * 100 : 0;
+          const dy12m = price > 0 ? (div12m / price) * 100 : 0;
+
+          await serviceClient.from("dividends_cache").upsert(
+            { asset_id: asset.id, div_12m: div12m, dy_12m: dy12m, updated_at: now, source: "brapi" },
+            { onConflict: "asset_id" }
+          );
         }
 
-        const { error: divErr } = await serviceClient.from("dividends_cache").upsert(
-          { asset_id: asset.id, div_12m: div12m, dy_12m: dy12m, updated_at: now, source: "brapi" },
-          { onConflict: "asset_id" }
-        );
+        // ---- FUNDAMENTALS CACHE (only if modules data available) ----
+        const ks = quote.defaultKeyStatistics;
+        const fd = quote.financialData;
+        if (ks || fd) {
+          const ksData = ks || {};
+          const fdData = fd || {};
+          const lpa = safeNum(quote.earningsPerShare) ?? safeNum(ksData.trailingEps);
+          const vpa = safeNum(ksData.bookValue);
+          const roe = pctFromRatio(fdData.returnOnEquity);
+          const peRatio = safeNum(quote.priceEarnings) ?? safeNum(ksData.trailingPE);
+          const pbRatio = safeNum(ksData.priceToBook);
+          const ev = safeNum(ksData.enterpriseValue);
+          const ebitda = safeNum(fdData.ebitda);
+          const totalShares = safeNum(ksData.sharesOutstanding) ?? safeNum(ksData.impliedSharesOutstanding);
+          const margin = pctFromRatio(fdData.profitMargins);
+          const revenueGrowth = pctFromRatio(fdData.revenueGrowth);
+          const payout = pctFromRatio(ksData.payoutRatio);
+          const totalDebt = safeNum(fdData.totalDebt);
+          const totalCash = safeNum(fdData.totalCash);
+          const netDebt = (totalDebt != null && totalCash != null) ? (totalDebt - totalCash) : null;
+          const price = safeNum(quote.regularMarketPrice) ?? 0;
+          const div12m = safeNum(quote?.dividendsData?.cashDividends?.reduce?.((s: number, d: any) => s + (safeNum(d.rate) ?? 0), 0));
+          const dy12m = (div12m && price > 0) ? (div12m / price) * 100 : null;
+          const dividendYield = dy12m ?? (ksData.dividendYield != null ? pctFromRatio(ksData.dividendYield) : null);
 
-        if (divErr) {
-          results.push({ ticker: asset.ticker, ok: false, step: "upsert_div", error: divErr.message });
-          continue;
-        }
-
-        // ---- FUNDAMENTALS CACHE ----
-        const ks = quote.defaultKeyStatistics || {};
-        const fd = quote.financialData || {};
-        const lpa = safeNum(quote.earningsPerShare) ?? safeNum(ks.trailingEps);
-        const vpa = safeNum(ks.bookValue);
-        const roe = pctFromRatio(fd.returnOnEquity);
-        const peRatio = safeNum(quote.priceEarnings) ?? safeNum(ks.trailingPE);
-        const pbRatio = safeNum(ks.priceToBook);
-        const ev = safeNum(ks.enterpriseValue);
-        const ebitda = safeNum(fd.ebitda);
-        const totalShares = safeNum(ks.sharesOutstanding) ?? safeNum(ks.impliedSharesOutstanding);
-        const margin = pctFromRatio(fd.profitMargins);
-        const revenueGrowth = pctFromRatio(fd.revenueGrowth);
-        const payout = pctFromRatio(ks.payoutRatio);
-        const totalDebt = safeNum(fd.totalDebt);
-        const totalCash = safeNum(fd.totalCash);
-        const netDebt = (totalDebt != null && totalCash != null) ? (totalDebt - totalCash) : null;
-        const dividendYield = dy12m > 0 ? dy12m : (ks.dividendYield != null ? pctFromRatio(ks.dividendYield) : null);
-
-        const { error: fundErr } = await serviceClient
-          .from("fundamentals_cache")
-          .upsert({
+          await serviceClient.from("fundamentals_cache").upsert({
             asset_id: asset.id, updated_at: now, source: "brapi",
             lpa: lpa ?? null, vpa: vpa ?? null, roe: roe ?? null, roe_5y: null,
             payout: payout ?? null, payout_5y: null, pe_ratio: peRatio ?? null,
@@ -233,16 +228,14 @@ Deno.serve(async (req) => {
             dividend_yield: dividendYield ?? null, margin: margin ?? null,
             revenue_growth: revenueGrowth ?? null,
           }, { onConflict: "asset_id" });
-
-        if (fundErr) {
-          results.push({ ticker: asset.ticker, ok: false, step: "upsert_fund", error: fundErr.message });
-          continue;
         }
 
         results.push({
-          ticker: quote.symbol ?? asset.ticker, ok: true,
-          price: priceData.last_price, change: priceData.change_percent,
-          div12m, dy12m,
+          ticker: quote.symbol ?? asset.ticker,
+          ok: true,
+          step: limitedPlan ? "limited_plan" : "full",
+          price: lastPrice,
+          change: priceData.change_percent,
         });
       } catch (tickerErr) {
         results.push({ ticker: asset.ticker, ok: false, step: "catch", error: (tickerErr as Error).message });
@@ -252,14 +245,16 @@ Deno.serve(async (req) => {
     const ok_count = results.filter((r) => r.ok).length;
     const error_count = results.length - ok_count;
 
+    console.log(`BRAPI SUMMARY: ok=${ok_count}, errors=${error_count}, limitedPlan=${limitedPlanDetected}, tokenPresent=true`);
+
     return new Response(JSON.stringify({
-      updated: results.length,
+      updated: ok_count,
       ok_count,
       error_count,
       debug: {
         tokenPresent: true,
         tokenLen: brapiToken.length,
-        selfTest: debugSelfTest,
+        limitedPlanDetected,
       },
       results,
     }), {
