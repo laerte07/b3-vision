@@ -173,7 +173,7 @@ const Portfolio = () => {
                             <TableCell className="text-right font-mono font-medium">{formatBRL(total)}</TableCell>
                             <TableCell className="text-right font-mono">{formatPct(pctClass)}</TableCell>
                             <TableCell className="text-right font-mono">{formatPct(pctPortfolio)}</TableCell>
-                            <TableCell className="text-right font-mono">{pos.dy_12m != null ? formatPct(pos.dy_12m) : '—'}</TableCell>
+                            <TableCell className="text-right font-mono">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className={`text-[10px] ${status.cls}`}>{status.label}</Badge>
                             </TableCell>
