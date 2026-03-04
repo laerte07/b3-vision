@@ -51,6 +51,22 @@ export interface PortfolioAsset {
 
 const toNum = (v: any): number | null => {
   if (v === null || v === undefined) return null;
+
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return null;
+
+    // Aceita "13,06" e também "1.234,56"
+    const normalized = s.includes(",")
+      ? s.replace(/\./g, "").replace(",", ".")
+      : s;
+
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : null;
+  }
+
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
