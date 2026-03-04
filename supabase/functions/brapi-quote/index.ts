@@ -70,11 +70,10 @@ Deno.serve(async (req) => {
 
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
     if (!brapiToken) {
-  return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN env var" }), {
-    status: 500,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+      return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN env var" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // service role para atualizar caches
@@ -84,7 +83,7 @@ Deno.serve(async (req) => {
     );
 
     const results: any[] = [];
-    const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
+    console.log(`Processing ${assets.length} assets...`);
 
     // 1 ticker por request (limites do plano) — já está ok
     for (const asset of assets) {
@@ -94,8 +93,9 @@ Deno.serve(async (req) => {
         // ---- 1) tenta com modules (fundamentos + dividendos) ----
         const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
         const ticker = encodeURIComponent(asset.ticker.trim().toUpperCase());
-        const brapiUrl = `https://brapi.dev/api/quote/${ticker}?token=${brapiToken}&modules=${modules}`;
+        console.log(`[${ticker}] URL: ${brapiUrl}`);
         let brapiRes = await fetch(brapiUrl);
+        console.log(`[${ticker}] Status: ${brapiRes.status}`);
 
         // fallback: se modules falhar (plano), tenta sem modules só para preço
         if (!brapiRes.ok) {
@@ -115,7 +115,11 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          const fbData = await fallbackRes.json();
+          const fbText = await fallbackRes.text();
+          let fbData: any;
+          try { fbData = JSON.parse(fbText); } catch { 
+            results.push({ ticker: asset.ticker, ok: false, step: "json", error: "Invalid fallback JSON" }); continue;
+          }
           if (!fbData?.results?.length) {
             results.push({ ticker: asset.ticker, ok: false, step: "fetch", error: "No BRAPI results (fallback)" });
             continue;
@@ -153,7 +157,12 @@ Deno.serve(async (req) => {
         }
 
         // ---- 2) parse normal com modules ----
-        const brapiData = await brapiRes.json();
+        const brapiText = await brapiRes.text();
+        let brapiData: any;
+        try { brapiData = JSON.parse(brapiText); } catch {
+          results.push({ ticker: asset.ticker, ok: false, step: "json", error: "Invalid BRAPI JSON" }); continue;
+        }
+        console.log(`[${ticker}] results count: ${brapiData?.results?.length ?? 0}`);
         if (!brapiData?.results?.length) {
           results.push({ ticker: asset.ticker, ok: false, step: "fetch", error: "No BRAPI results" });
           continue;
