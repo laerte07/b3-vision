@@ -1,4 +1,3 @@
-// supabase/functions/brapi-quote/index.ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -13,16 +12,19 @@ function safeNum(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * BRAPI/Yahoo às vezes retorna ratio (0.12) e às vezes já vem em % (12).
- * Heurística segura:
- * - se |n| <= 1 -> assume ratio e converte para %
- * - senão -> assume que já é percentual
- */
 function pctFromRatio(v: any): number | null {
   const n = safeNum(v);
   if (n === null) return null;
-  return n <= 1 && n >= -1 ? n * 100 : n;
+  return n * 100;
+}
+
+async function safeJson(res: Response) {
+  const text = await res.text();
+  try {
+    return { ok: true, data: JSON.parse(text), raw: text };
+  } catch {
+    return { ok: false, data: null, raw: text };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -37,32 +39,36 @@ Deno.serve(async (req) => {
       });
     }
 
-    // client com o token do usuário
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    // pega usuário (mais estável que claims em alguns setups)
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized", detail: userError?.message ?? "No user" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Unauthorized", detail: userError?.message ?? "No user" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     const userId = userData.user.id;
 
-    // ativos ativos do usuário
     const { data: assets, error: assetsErr } = await supabase
       .from("assets")
       .select("id, ticker")
       .eq("user_id", userId)
       .eq("active", true);
 
-    if (assetsErr || !assets || assets.length === 0) {
-      return new Response(JSON.stringify({ error: "No active assets found", updated: 0, ok_count: 0, error_count: 0 }), {
+    if (assetsErr) {
+      return new Response(JSON.stringify({ error: assetsErr.message, updated: 0 }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!assets || assets.length === 0) {
+      return new Response(JSON.stringify({ error: "No active assets found", updated: 0, ok_count: 0, error_count: 0, results: [] }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -70,107 +76,76 @@ Deno.serve(async (req) => {
 
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
     if (!brapiToken) {
-      return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN env var" }), {
+      return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN secret in Supabase Edge Functions", updated: 0, ok_count: 0, error_count: assets.length }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // service role para atualizar caches
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
     const results: any[] = [];
-    console.log(`Processing ${assets.length} assets...`);
+    const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
 
-    // 1 ticker por request (limites do plano) — já está ok
     for (const asset of assets) {
       try {
-        const now = new Date().toISOString();
+        const url = new URL(`https://brapi.dev/api/quote/${asset.ticker}`);
+        url.searchParams.set("token", brapiToken);
+        url.searchParams.set("modules", modules);
 
-        // ---- 1) tenta com modules (fundamentos + dividendos) ----
-        const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
-        const ticker = encodeURIComponent(asset.ticker.trim().toUpperCase());
-        console.log(`[${ticker}] URL: ${brapiUrl}`);
-        let brapiRes = await fetch(brapiUrl);
-        console.log(`[${ticker}] Status: ${brapiRes.status}`);
+        const brapiRes = await fetch(url.toString());
+        const parsed = await safeJson(brapiRes);
 
-        // fallback: se modules falhar (plano), tenta sem modules só para preço
         if (!brapiRes.ok) {
-          const errText = await brapiRes.text();
-          // tenta sem modules para não deixar tudo "Desatualizado"
-          const fallbackUrl = `https://brapi.dev/api/quote/${asset.ticker}?token=${brapiToken}`;
-          const fallbackRes = await fetch(fallbackUrl);
-
-          if (!fallbackRes.ok) {
-            const fbText = await fallbackRes.text();
-            results.push({
-              ticker: asset.ticker,
-              ok: false,
-              step: "fetch",
-              error: `BRAPI modules FAIL ${brapiRes.status}: ${errText} | fallback FAIL ${fallbackRes.status}: ${fbText}`,
-            });
-            continue;
-          }
-
-          const fbText = await fallbackRes.text();
-          let fbData: any;
-          try { fbData = JSON.parse(fbText); } catch { 
-            results.push({ ticker: asset.ticker, ok: false, step: "json", error: "Invalid fallback JSON" }); continue;
-          }
-          if (!fbData?.results?.length) {
-            results.push({ ticker: asset.ticker, ok: false, step: "fetch", error: "No BRAPI results (fallback)" });
-            continue;
-          }
-
-          const quote = fbData.results[0];
-
-          // ---- atualiza preço SEMPRE ----
-          const priceData = {
-            asset_id: asset.id,
-            last_price: quote.regularMarketPrice ?? null,
-            change_percent: quote.regularMarketChangePercent ?? null,
-            logo_url: quote.logourl ?? null,
-            updated_at: now,
-            source: "brapi",
-          };
-
-          const { error: priceErr } = await serviceClient
-            .from("price_cache")
-            .upsert(priceData, { onConflict: "asset_id" });
-
-          if (priceErr) {
-            results.push({ ticker: asset.ticker, ok: false, step: "price_cache", error: priceErr.message });
-            continue;
-          }
-
           results.push({
-            ticker: quote.symbol ?? asset.ticker,
-            ok: true,
-            note: "Atualizou preço via fallback (sem modules).",
-            price: priceData.last_price,
-            change: priceData.change_percent,
+            ticker: asset.ticker,
+            ok: false,
+            step: "fetch",
+            error: `BRAPI ${brapiRes.status}: ${parsed.raw?.slice(0, 300) ?? "no-body"}`,
           });
           continue;
         }
 
-        // ---- 2) parse normal com modules ----
-        const brapiText = await brapiRes.text();
-        let brapiData: any;
-        try { brapiData = JSON.parse(brapiText); } catch {
-          results.push({ ticker: asset.ticker, ok: false, step: "json", error: "Invalid BRAPI JSON" }); continue;
+        if (!parsed.ok || !parsed.data) {
+          results.push({
+            ticker: asset.ticker,
+            ok: false,
+            step: "parse",
+            error: `Invalid JSON from BRAPI: ${parsed.raw?.slice(0, 300) ?? "no-body"}`,
+          });
+          continue;
         }
-        console.log(`[${ticker}] results count: ${brapiData?.results?.length ?? 0}`);
+
+        const brapiData = parsed.data;
+
+        // BRAPI às vezes retorna { error: true, message: "..."} (sem results)
+        if (brapiData?.error) {
+          results.push({
+            ticker: asset.ticker,
+            ok: false,
+            step: "brapi",
+            error: brapiData?.message ?? "BRAPI error=true",
+          });
+          continue;
+        }
+
         if (!brapiData?.results?.length) {
-          results.push({ ticker: asset.ticker, ok: false, step: "fetch", error: "No BRAPI results" });
+          results.push({
+            ticker: asset.ticker,
+            ok: false,
+            step: "results",
+            error: brapiData?.message ?? "No BRAPI results",
+          });
           continue;
         }
 
         const quote = brapiData.results[0];
+        const now = new Date().toISOString();
 
-        // ---- PRICE CACHE (sempre) ----
+        // ---------------- PRICE CACHE ----------------
         const priceData = {
           asset_id: asset.id,
           last_price: quote.regularMarketPrice ?? null,
@@ -189,13 +164,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // ---- DIVIDENDS CACHE (sempre upsert; null quando não tem dados) ----
-        let div12m: number | null = null;
-        let dy12m: number | null = null;
+        // ---------------- DIVIDENDS CACHE (sempre upsert) ----------------
+        let div12m = 0;
+        let dy12m = 0;
 
         const price = safeNum(quote.regularMarketPrice) ?? 0;
 
-        if (quote.dividendsData?.cashDividends?.length) {
+        if (quote?.dividendsData?.cashDividends?.length) {
           const oneYearAgo = new Date();
           oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
@@ -205,30 +180,27 @@ Deno.serve(async (req) => {
             return new Date(dt) >= oneYearAgo;
           });
 
-          const sum = divs.reduce((s: number, d: any) => s + (safeNum(d?.rate) ?? 0), 0);
-          div12m = Number.isFinite(sum) ? sum : null;
-          dy12m = price > 0 && div12m != null ? (div12m / price) * 100 : null;
+          div12m = divs.reduce((s: number, d: any) => s + (safeNum(d.rate) ?? 0), 0);
+          dy12m = price > 0 ? (div12m / price) * 100 : 0;
         }
 
-        const { error: divErr } = await serviceClient
-          .from("dividends_cache")
-          .upsert(
-            {
-              asset_id: asset.id,
-              div_12m: div12m,
-              dy_12m: dy12m,
-              updated_at: now,
-              source: "brapi",
-            },
-            { onConflict: "asset_id" }
-          );
+        const { error: divErr } = await serviceClient.from("dividends_cache").upsert(
+          {
+            asset_id: asset.id,
+            div_12m: div12m,
+            dy_12m: dy12m,
+            updated_at: now,
+            source: "brapi",
+          },
+          { onConflict: "asset_id" }
+        );
 
         if (divErr) {
           results.push({ ticker: asset.ticker, ok: false, step: "dividends_cache", error: divErr.message });
-          // NÃO dá continue — preço já foi atualizado; segue para fundamentals se der
+          continue;
         }
 
-        // ---- FUNDAMENTALS CACHE ----
+        // ---------------- FUNDAMENTALS CACHE ----------------
         const ks = quote.defaultKeyStatistics || {};
         const fd = quote.financialData || {};
 
@@ -248,11 +220,8 @@ Deno.serve(async (req) => {
         const totalCash = safeNum(fd.totalCash);
         const netDebt = (totalDebt != null && totalCash != null) ? (totalDebt - totalCash) : null;
 
-        // dividend_yield: prefere dy12m calculado; fallback para ks.dividendYield
         const dividendYield =
-          (dy12m != null && dy12m > 0)
-            ? dy12m
-            : (ks.dividendYield != null ? pctFromRatio(ks.dividendYield) : null);
+          dy12m > 0 ? dy12m : (ks.dividendYield != null ? pctFromRatio(ks.dividendYield) : null);
 
         const fundamentalsData = {
           asset_id: asset.id,
@@ -291,13 +260,6 @@ Deno.serve(async (req) => {
           change: priceData.change_percent,
           div12m,
           dy12m,
-          dividendYield,
-          roe,
-          payout,
-          peRatio,
-          pbRatio,
-          margin,
-          revenueGrowth,
         });
       } catch (tickerErr) {
         results.push({ ticker: asset.ticker, ok: false, step: "catch", error: (tickerErr as Error).message });
@@ -305,9 +267,9 @@ Deno.serve(async (req) => {
     }
 
     const ok_count = results.filter((r) => r.ok).length;
-    const error_count = results.filter((r) => !r.ok).length;
+    const error_count = results.length - ok_count;
 
-    return new Response(JSON.stringify({ updated: ok_count, ok_count, error_count, results }), {
+    return new Response(JSON.stringify({ updated: results.length, ok_count, error_count, results }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
