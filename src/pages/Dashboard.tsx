@@ -27,12 +27,12 @@ const Dashboard = () => {
   const classValues = classes.map(cls => {
     const positions = portfolio.filter(p => p.class_id === cls.id);
     const total = positions.reduce((sum, p) => sum + p.quantity * (p.last_price ?? p.avg_price), 0);
-    const div12m = positions.reduce((sum, p) => sum + p.quantity * (p.div_12m ?? 0), 0);
+    const div12m = positions.reduce((sum, p) => sum + p.quantity * (p.effective_dy ?? 0), 0);
     return { ...cls, total, div12m, positions };
   }).filter(c => c.total > 0);
 
   const totalPatrimony = classValues.reduce((s, c) => s + c.total, 0);
-  const totalDiv12m = classValues.reduce((s, c) => s + c.div12m, 0);
+  const totalDiv12m = classValues.reduce((s, c) => s + c.effective_dy, 0);
   const avgDY = totalPatrimony > 0 ? (totalDiv12m / totalPatrimony) * 100 : 0;
   const totalAssets = portfolio.length;
 
