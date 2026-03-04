@@ -75,6 +75,7 @@ Deno.serve(async (req) => {
     }
 
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
+    console.log("BRAPI_TOKEN present:", !!brapiToken, "length:", brapiToken?.length ?? 0);
     if (!brapiToken) {
       return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN secret in Supabase Edge Functions", updated: 0, ok_count: 0, error_count: assets.length }), {
         status: 500,
@@ -96,9 +97,10 @@ Deno.serve(async (req) => {
         url.searchParams.set("token", brapiToken);
         url.searchParams.set("modules", modules);
 
+        console.log(`BRAPI URL for ${asset.ticker}:`, url.toString());
         const brapiRes = await fetch(url.toString());
         const parsed = await safeJson(brapiRes);
-
+        console.log(`BRAPI response for ${asset.ticker}: status=${brapiRes.status}, hasResults=${!!parsed.data?.results?.length}`);
         if (!brapiRes.ok) {
           results.push({
             ticker: asset.ticker,
