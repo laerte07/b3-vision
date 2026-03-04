@@ -1,7 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { DollarSign, TrendingUp, BarChart3, PieChart as PieIcon, RefreshCw, AlertTriangle, Target, ShieldAlert, TrendingDown, Activity } from 'lucide-react';
+import {
+  DollarSign,
+  TrendingUp,
+  BarChart3,
+  PieChart as PieIcon,
+  RefreshCw,
+  AlertTriangle,
+  Target,
+  ShieldAlert,
+  TrendingDown,
+} from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePortfolio, useRefreshMarket } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
@@ -23,43 +32,79 @@ const Dashboard = () => {
   const { data: targets = [] } = useClassTargets();
   const refreshMarket = useRefreshMarket();
 
-  // --- Computed values ---
-  const classValues = classes.map(cls => {
-    const positions = portfolio.filter(p => p.class_id === cls.id);
-    const total = positions.reduce((sum, p) => sum + p.quantity * (p.last_price ?? p.avg_price), 0);
-    const div12m = positions.reduce((sum, p) => sum + p.quantity * (p.effective_dy ?? 0), 0);
-    return { ...cls, total, div12m, positions };
-  }).filter(c => c.total > 0);
+  // --- Computed values (per class) ---
+  const classValues = classes
+    .map((cls) => {
+      const positions = portfolio.filter((p) => p.class_id === cls.id);
+
+      const total = positions.reduce(
+        (sum, p) => sum + p.quantity * (p.last_price ?? p.avg_price),
+        0
+      );
+
+      // ✅ Proventos 12m em R$: usa div_12m (R$/ação/cota) * quantidade
+      const div12m = positions.reduce((sum, p) => sum + p.quantity * (p.div_12m ?? 0), 0);
+
+      // ✅ Soma ponderada de DY (%): valor * dy
+      const weightedDySum = positions.reduce((sum, p) => {
+        const price = p.last_price ?? p.avg_price;
+        const value = p.quantity * price;
+        const dy = p.effective_dy ?? 0; // %
+        return sum + value * dy;
+      }, 0);
+
+      return { ...cls, total, div12m, weightedDySum, positions };
+    })
+    .filter((c) => c.total > 0);
 
   const totalPatrimony = classValues.reduce((s, c) => s + c.total, 0);
-  const totalDiv12m = classValues.reduce((s, c) => s + c.effective_dy, 0);
-  const avgDY = totalPatrimony > 0 ? (totalDiv12m / totalPatrimony) * 100 : 0;
+
+  // ✅ Total de proventos 12m (R$)
+  const totalDiv12m = classValues.reduce((s, c) => s + c.div12m, 0);
+
+  // ✅ DY médio (%): média ponderada por valor (mais correto)
+  const totalWeightedDy = classValues.reduce((s, c) => s + c.weightedDySum, 0);
+  const avgDY = totalPatrimony > 0 ? totalWeightedDy / totalPatrimony : 0;
+
   const totalAssets = portfolio.length;
 
   // --- Per-asset analytics ---
-  const assetValues = portfolio.map(p => {
-    const price = p.last_price ?? p.avg_price;
-    const currentValue = p.quantity * price;
-    const costBasis = p.quantity * p.avg_price;
-    const pctPortfolio = totalPatrimony > 0 ? (currentValue / totalPatrimony) * 100 : 0;
-    const pnlPct = p.avg_price > 0 ? ((price - p.avg_price) / p.avg_price) * 100 : 0;
-    return { ...p, currentValue, costBasis, pctPortfolio, pnlPct };
-  }).sort((a, b) => b.currentValue - a.currentValue);
+  const assetValues = portfolio
+    .map((p) => {
+      const price = p.last_price ?? p.avg_price;
+      const currentValue = p.quantity * price;
+      const costBasis = p.quantity * p.avg_price;
+      const pctPortfolio = totalPatrimony > 0 ? (currentValue / totalPatrimony) * 100 : 0;
+      const pnlPct = p.avg_price > 0 ? ((price - p.avg_price) / p.avg_price) * 100 : 0;
+      return { ...p, currentValue, costBasis, pctPortfolio, pnlPct };
+    })
+    .sort((a, b) => b.currentValue - a.currentValue);
 
   // Most concentrated asset
   const topAsset = assetValues[0];
   const topAssetPct = topAsset?.pctPortfolio ?? 0;
 
   // Most concentrated class
-  const classAllocations = classValues.map(c => ({
-    name: c.name,
-    pct: totalPatrimony > 0 ? (c.total / totalPatrimony) * 100 : 0,
-  })).sort((a, b) => b.pct - a.pct);
+  const classAllocations = classValues
+    .map((c) => ({
+      name: c.name,
+      pct: totalPatrimony > 0 ? (c.total / totalPatrimony) * 100 : 0,
+      id: c.id,
+      slug: (c as any).slug,
+    }))
+    .sort((a, b) => b.pct - a.pct);
+
   const topClassPct = classAllocations[0]?.pct ?? 0;
 
   // Biggest gain/loss
-  const biggestGain = assetValues.reduce((best, a) => a.pnlPct > best.pnlPct ? a : best, assetValues[0] || { ticker: '-', pnlPct: 0 });
-  const biggestLoss = assetValues.reduce((worst, a) => a.pnlPct < worst.pnlPct ? a : worst, assetValues[0] || { ticker: '-', pnlPct: 0 });
+  const biggestGain = assetValues.reduce(
+    (best, a) => (a.pnlPct > best.pnlPct ? a : best),
+    assetValues[0] || ({ ticker: '-', pnlPct: 0 } as any)
+  );
+  const biggestLoss = assetValues.reduce(
+    (worst, a) => (a.pnlPct < worst.pnlPct ? a : worst),
+    assetValues[0] || ({ ticker: '-', pnlPct: 0 } as any)
+  );
 
   // Band analysis
   const aboveBand: string[] = [];
@@ -67,12 +112,18 @@ const Dashboard = () => {
   let valueAboveBand = 0;
   let valueBelowBand = 0;
 
-  classValues.forEach(cv => {
-    const target = targets.find(t => t.class_id === cv.id);
+  classValues.forEach((cv: any) => {
+    const target = targets.find((t) => t.class_id === cv.id);
     if (target && totalPatrimony > 0) {
       const pct = (cv.total / totalPatrimony) * 100;
-      if (pct > target.upper_band) { aboveBand.push(cv.name); valueAboveBand += cv.total; }
-      if (pct < target.lower_band) { belowBand.push(cv.name); valueBelowBand += cv.total; }
+      if (pct > target.upper_band) {
+        aboveBand.push(cv.name);
+        valueAboveBand += cv.total;
+      }
+      if (pct < target.lower_band) {
+        belowBand.push(cv.name);
+        valueBelowBand += cv.total;
+      }
     }
   });
 
@@ -80,23 +131,23 @@ const Dashboard = () => {
   const pctBelowBand = totalPatrimony > 0 ? (valueBelowBand / totalPatrimony) * 100 : 0;
 
   // Concentration risk
-  const concentrationRisk = assetValues.filter(a => a.pctPortfolio > 15);
+  const concentrationRisk = assetValues.filter((a) => a.pctPortfolio > 15);
   const top3Pct = assetValues.slice(0, 3).reduce((s, a) => s + a.pctPortfolio, 0);
 
   // --- Problems ---
   const problems: string[] = [];
-  aboveBand.forEach(n => problems.push(`${n} acima da banda superior`));
-  belowBand.forEach(n => problems.push(`${n} abaixo da banda inferior`));
+  aboveBand.forEach((n) => problems.push(`${n} acima da banda superior`));
+  belowBand.forEach((n) => problems.push(`${n} abaixo da banda inferior`));
 
-  // Check for missing classes
-  const hasEtfs = classValues.some(c => c.slug === 'etfs');
-  const hasRendaFixa = classValues.some(c => c.slug === 'renda-fixa');
+  // Check for missing classes (por slug)
+  const hasEtfs = classAllocations.some((c) => c.slug === 'etfs');
+  const hasRendaFixa = classAllocations.some((c) => c.slug === 'renda-fixa');
   if (!hasEtfs) problems.push('Nenhuma exposição a ETFs internacionais');
   if (!hasRendaFixa) problems.push('Exposição zero a Renda Fixa');
   if (concentrationRisk.length > 0) problems.push(`${concentrationRisk.length} ativo(s) com mais de 15% da carteira`);
   if (top3Pct > 50) problems.push(`Top 3 ativos representam ${top3Pct.toFixed(0)}% da carteira`);
 
-  const pieData = classValues.map(c => ({
+  const pieData = classValues.map((c: any) => ({
     name: c.name,
     value: c.total,
     pct: totalPatrimony > 0 ? (c.total / totalPatrimony) * 100 : 0,
@@ -122,6 +173,10 @@ const Dashboard = () => {
     { label: 'Risco Concentração', value: concentrationRisk.length > 0 ? `${concentrationRisk.length} ativo(s)` : 'OK' },
   ];
 
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-64 text-muted-foreground">Carregando...</div>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -129,7 +184,13 @@ const Dashboard = () => {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Diagnóstico real da sua carteira</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => refreshMarket.mutate()} disabled={refreshMarket.isPending}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => refreshMarket.mutate()}
+          disabled={refreshMarket.isPending}
+        >
           <RefreshCw className={`h-4 w-4 ${refreshMarket.isPending ? 'animate-spin' : ''}`} />
           Atualizar Mercado
         </Button>
@@ -137,7 +198,7 @@ const Dashboard = () => {
 
       {/* Row 1: Main KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {diagCards.map(card => (
+        {diagCards.map((card) => (
           <Card key={card.label}>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -156,13 +217,17 @@ const Dashboard = () => {
 
       {/* Row 2: Diagnostic KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {diagCards2.map(card => (
+        {diagCards2.map((card) => (
           <Card key={card.label}>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</p>
-                  <p className={`text-sm font-bold mt-1 font-mono ${(card as any).positive ? 'text-emerald-500' : (card as any).negative ? 'text-red-500' : ''}`}>
+                  <p
+                    className={`text-sm font-bold mt-1 font-mono ${
+                      (card as any).positive ? 'text-emerald-500' : (card as any).negative ? 'text-red-500' : ''
+                    }`}
+                  >
                     {card.value}
                   </p>
                 </div>
@@ -177,7 +242,7 @@ const Dashboard = () => {
 
       {/* Row 3: Band + Concentration */}
       <div className="grid grid-cols-3 gap-4">
-        {diagCards3.map(card => (
+        {diagCards3.map((card) => (
           <Card key={card.label}>
             <CardContent className="pt-6 text-center">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</p>
@@ -190,19 +255,42 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Pie chart */}
         <Card>
-          <CardHeader><CardTitle className="text-base">Alocação por Classe</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Alocação por Classe</CardTitle>
+          </CardHeader>
           <CardContent>
             {pieData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">Cadastre ativos na Carteira para ver a alocação.</p>
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Cadastre ativos na Carteira para ver a alocação.
+              </p>
             ) : (
               <>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={65} outerRadius={105} dataKey="value" strokeWidth={2} stroke="hsl(var(--background))">
-                        {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={105}
+                        dataKey="value"
+                        strokeWidth={2}
+                        stroke="hsl(var(--background))"
+                      >
+                        {pieData.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
                       </Pie>
-                      <Tooltip formatter={(value: number) => formatBRL(value)} contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))' }} />
+                      <Tooltip
+                        formatter={(value: number) => formatBRL(value)}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                          color: 'hsl(var(--foreground))',
+                        }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
