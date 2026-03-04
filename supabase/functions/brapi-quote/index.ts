@@ -18,15 +18,6 @@ function pctFromRatio(v: any): number | null {
   return n * 100;
 }
 
-async function safeJson(res: Response) {
-  const text = await res.text();
-  try {
-    return { ok: true, data: JSON.parse(text), raw: text };
-  } catch {
-    return { ok: false, data: null, raw: text };
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -74,13 +65,37 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---- BRAPI TOKEN ----
     const brapiToken = Deno.env.get("BRAPI_TOKEN");
     console.log("BRAPI_TOKEN present:", !!brapiToken, "length:", brapiToken?.length ?? 0);
-    if (!brapiToken) {
-      return new Response(JSON.stringify({ error: "Missing BRAPI_TOKEN secret in Supabase Edge Functions", updated: 0, ok_count: 0, error_count: assets.length }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!brapiToken || brapiToken.trim().length < 5) {
+      return new Response(JSON.stringify({
+        error: "BRAPI_TOKEN missing/empty in Supabase secrets",
+        updated: 0, ok_count: 0, error_count: 0,
+      }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ---- SELF-TEST with PETR4 ----
+    let debugSelfTest: any = {};
+    try {
+      const testTicker = "PETR4";
+      // Build URL as plain string to avoid %2C encoding of commas
+      const testUrl = `https://brapi.dev/api/quote/${testTicker}?token=${brapiToken}`;
+      console.log("SELF-TEST URL:", testUrl);
+      const testRes = await fetch(testUrl);
+      const testRaw = await testRes.text();
+      console.log("SELF-TEST status:", testRes.status, "body:", testRaw.slice(0, 500));
+      let testData: any = null;
+      try { testData = JSON.parse(testRaw); } catch { /* */ }
+      debugSelfTest = {
+        url: testUrl,
+        httpStatus: testRes.status,
+        rawSnippet: testRaw.slice(0, 500),
+        hasResults: !!testData?.results?.length,
+        resultsLength: testData?.results?.length ?? 0,
+      };
+    } catch (e) {
+      debugSelfTest = { error: (e as Error).message };
     }
 
     const serviceClient = createClient(
@@ -89,57 +104,52 @@ Deno.serve(async (req) => {
     );
 
     const results: any[] = [];
-    const modules = "summaryProfile,defaultKeyStatistics,financialData,dividendsData";
 
+    // Process assets sequentially to avoid rate limits
     for (const asset of assets) {
       try {
-        const url = new URL(`https://brapi.dev/api/quote/${asset.ticker}`);
-        url.searchParams.set("token", brapiToken);
-        url.searchParams.set("modules", modules);
+        const ticker = encodeURIComponent(String(asset.ticker).trim().toUpperCase());
+        // Build URL as plain string - do NOT use searchParams.set for modules
+        // because it encodes commas as %2C which BRAPI rejects with 400
+        const brapiUrl = `https://brapi.dev/api/quote/${ticker}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData,dividendsData`;
 
-        console.log(`BRAPI URL for ${asset.ticker}:`, url.toString());
-        const brapiRes = await fetch(url.toString());
-        const parsed = await safeJson(brapiRes);
-        console.log(`BRAPI response for ${asset.ticker}: status=${brapiRes.status}, hasResults=${!!parsed.data?.results?.length}`);
+        console.log(`BRAPI fetch ${asset.ticker}: ${brapiUrl}`);
+        const brapiRes = await fetch(brapiUrl);
+        const rawText = await brapiRes.text();
+        console.log(`BRAPI ${asset.ticker}: status=${brapiRes.status}, bodyLen=${rawText.length}`);
+
         if (!brapiRes.ok) {
           results.push({
-            ticker: asset.ticker,
-            ok: false,
-            step: "fetch",
-            error: `BRAPI ${brapiRes.status}: ${parsed.raw?.slice(0, 300) ?? "no-body"}`,
+            ticker: asset.ticker, ok: false, step: "fetch",
+            status: brapiRes.status,
+            error: `HTTP ${brapiRes.status}: ${rawText.slice(0, 300)}`,
           });
           continue;
         }
 
-        if (!parsed.ok || !parsed.data) {
+        let brapiData: any;
+        try {
+          brapiData = JSON.parse(rawText);
+        } catch {
           results.push({
-            ticker: asset.ticker,
-            ok: false,
-            step: "parse",
-            error: `Invalid JSON from BRAPI: ${parsed.raw?.slice(0, 300) ?? "no-body"}`,
+            ticker: asset.ticker, ok: false, step: "parse",
+            error: `Invalid JSON: ${rawText.slice(0, 300)}`,
           });
           continue;
         }
 
-        const brapiData = parsed.data;
-
-        // BRAPI às vezes retorna { error: true, message: "..."} (sem results)
         if (brapiData?.error) {
           results.push({
-            ticker: asset.ticker,
-            ok: false,
-            step: "brapi",
-            error: brapiData?.message ?? "BRAPI error=true",
+            ticker: asset.ticker, ok: false, step: "brapi_error",
+            error: brapiData?.message ?? JSON.stringify(brapiData).slice(0, 300),
           });
           continue;
         }
 
         if (!brapiData?.results?.length) {
           results.push({
-            ticker: asset.ticker,
-            ok: false,
-            step: "results",
-            error: brapiData?.message ?? "No BRAPI results",
+            ticker: asset.ticker, ok: false, step: "no_results",
+            error: `No results array. Body: ${rawText.slice(0, 300)}`,
           });
           continue;
         }
@@ -147,7 +157,7 @@ Deno.serve(async (req) => {
         const quote = brapiData.results[0];
         const now = new Date().toISOString();
 
-        // ---------------- PRICE CACHE ----------------
+        // ---- PRICE CACHE ----
         const priceData = {
           asset_id: asset.id,
           last_price: quote.regularMarketPrice ?? null,
@@ -162,50 +172,40 @@ Deno.serve(async (req) => {
           .upsert(priceData, { onConflict: "asset_id" });
 
         if (priceErr) {
-          results.push({ ticker: asset.ticker, ok: false, step: "price_cache", error: priceErr.message });
+          results.push({ ticker: asset.ticker, ok: false, step: "upsert_price", error: priceErr.message });
           continue;
         }
 
-        // ---------------- DIVIDENDS CACHE (sempre upsert) ----------------
+        // ---- DIVIDENDS CACHE ----
         let div12m = 0;
         let dy12m = 0;
-
         const price = safeNum(quote.regularMarketPrice) ?? 0;
 
         if (quote?.dividendsData?.cashDividends?.length) {
           const oneYearAgo = new Date();
           oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
           const divs = quote.dividendsData.cashDividends.filter((d: any) => {
             const dt = d?.paymentDate ?? d?.date ?? d?.approvedDate ?? null;
             if (!dt) return false;
             return new Date(dt) >= oneYearAgo;
           });
-
           div12m = divs.reduce((s: number, d: any) => s + (safeNum(d.rate) ?? 0), 0);
           dy12m = price > 0 ? (div12m / price) * 100 : 0;
         }
 
         const { error: divErr } = await serviceClient.from("dividends_cache").upsert(
-          {
-            asset_id: asset.id,
-            div_12m: div12m,
-            dy_12m: dy12m,
-            updated_at: now,
-            source: "brapi",
-          },
+          { asset_id: asset.id, div_12m: div12m, dy_12m: dy12m, updated_at: now, source: "brapi" },
           { onConflict: "asset_id" }
         );
 
         if (divErr) {
-          results.push({ ticker: asset.ticker, ok: false, step: "dividends_cache", error: divErr.message });
+          results.push({ ticker: asset.ticker, ok: false, step: "upsert_div", error: divErr.message });
           continue;
         }
 
-        // ---------------- FUNDAMENTALS CACHE ----------------
+        // ---- FUNDAMENTALS CACHE ----
         const ks = quote.defaultKeyStatistics || {};
         const fd = quote.financialData || {};
-
         const lpa = safeNum(quote.earningsPerShare) ?? safeNum(ks.trailingEps);
         const vpa = safeNum(ks.bookValue);
         const roe = pctFromRatio(fd.returnOnEquity);
@@ -217,51 +217,32 @@ Deno.serve(async (req) => {
         const margin = pctFromRatio(fd.profitMargins);
         const revenueGrowth = pctFromRatio(fd.revenueGrowth);
         const payout = pctFromRatio(ks.payoutRatio);
-
         const totalDebt = safeNum(fd.totalDebt);
         const totalCash = safeNum(fd.totalCash);
         const netDebt = (totalDebt != null && totalCash != null) ? (totalDebt - totalCash) : null;
-
-        const dividendYield =
-          dy12m > 0 ? dy12m : (ks.dividendYield != null ? pctFromRatio(ks.dividendYield) : null);
-
-        const fundamentalsData = {
-          asset_id: asset.id,
-          updated_at: now,
-          source: "brapi",
-          lpa: lpa ?? null,
-          vpa: vpa ?? null,
-          roe: roe ?? null,
-          roe_5y: null,
-          payout: payout ?? null,
-          payout_5y: null,
-          pe_ratio: peRatio ?? null,
-          pb_ratio: pbRatio ?? null,
-          ev: ev ?? null,
-          ebitda: ebitda ?? null,
-          net_debt: netDebt ?? null,
-          total_shares: totalShares ?? null,
-          dividend_yield: dividendYield ?? null,
-          margin: margin ?? null,
-          revenue_growth: revenueGrowth ?? null,
-        };
+        const dividendYield = dy12m > 0 ? dy12m : (ks.dividendYield != null ? pctFromRatio(ks.dividendYield) : null);
 
         const { error: fundErr } = await serviceClient
           .from("fundamentals_cache")
-          .upsert(fundamentalsData, { onConflict: "asset_id" });
+          .upsert({
+            asset_id: asset.id, updated_at: now, source: "brapi",
+            lpa: lpa ?? null, vpa: vpa ?? null, roe: roe ?? null, roe_5y: null,
+            payout: payout ?? null, payout_5y: null, pe_ratio: peRatio ?? null,
+            pb_ratio: pbRatio ?? null, ev: ev ?? null, ebitda: ebitda ?? null,
+            net_debt: netDebt ?? null, total_shares: totalShares ?? null,
+            dividend_yield: dividendYield ?? null, margin: margin ?? null,
+            revenue_growth: revenueGrowth ?? null,
+          }, { onConflict: "asset_id" });
 
         if (fundErr) {
-          results.push({ ticker: asset.ticker, ok: false, step: "fundamentals_cache", error: fundErr.message });
+          results.push({ ticker: asset.ticker, ok: false, step: "upsert_fund", error: fundErr.message });
           continue;
         }
 
         results.push({
-          ticker: quote.symbol ?? asset.ticker,
-          ok: true,
-          price: priceData.last_price,
-          change: priceData.change_percent,
-          div12m,
-          dy12m,
+          ticker: quote.symbol ?? asset.ticker, ok: true,
+          price: priceData.last_price, change: priceData.change_percent,
+          div12m, dy12m,
         });
       } catch (tickerErr) {
         results.push({ ticker: asset.ticker, ok: false, step: "catch", error: (tickerErr as Error).message });
@@ -271,7 +252,17 @@ Deno.serve(async (req) => {
     const ok_count = results.filter((r) => r.ok).length;
     const error_count = results.length - ok_count;
 
-    return new Response(JSON.stringify({ updated: results.length, ok_count, error_count, results }), {
+    return new Response(JSON.stringify({
+      updated: results.length,
+      ok_count,
+      error_count,
+      debug: {
+        tokenPresent: true,
+        tokenLen: brapiToken.length,
+        selfTest: debugSelfTest,
+      },
+      results,
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
