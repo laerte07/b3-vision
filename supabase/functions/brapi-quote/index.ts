@@ -37,8 +37,9 @@ async function fetchBrapi(ticker: string, brapiToken: string): Promise<{ data: a
   if (fullRes.status === 400) {
     const isModulesError = fullRaw.includes("MODULES_NOT_AVAILABLE") || fullRaw.includes("modules");
     if (isModulesError) {
-      console.log(`BRAPI ${ticker}: limited plan detected, retrying without modules`);
-      const simpleUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}`;
+      console.log(`BRAPI ${ticker}: limited plan detected, retrying with summaryProfile only`);
+      // Retry with only summaryProfile (allowed on basic plan)
+      const simpleUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}&modules=summaryProfile`;
       const simpleRes = await fetch(simpleUrl);
       const simpleRaw = await simpleRes.text();
       console.log(`BRAPI simple ${ticker}: status=${simpleRes.status}, len=${simpleRaw.length}`);
@@ -47,8 +48,15 @@ async function fetchBrapi(ticker: string, brapiToken: string): Promise<{ data: a
         const parsed = JSON.parse(simpleRaw);
         return { data: parsed, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
       }
-      // Both failed
-      return { data: null, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
+      // fallback: no modules at all
+      const fallbackUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}`;
+      const fallbackRes = await fetch(fallbackUrl);
+      const fallbackRaw = await fallbackRes.text();
+      if (fallbackRes.ok) {
+        const parsed = JSON.parse(fallbackRaw);
+        return { data: parsed, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
+      }
+      return { data: null, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
     }
   }
 
@@ -154,15 +162,22 @@ Deno.serve(async (req) => {
         const quote = brapiData.results[0];
         const now = new Date().toISOString();
 
+        // ---- Extract sector/industry from summaryProfile ----
+        const profile = quote.summaryProfile ?? {};
+        const sector = profile.sector ?? quote.sector ?? null;
+        const industry = profile.industry ?? quote.industry ?? null;
+
         // ---- PRICE CACHE (always first, always required) ----
         const lastPrice = quote.regularMarketPrice ?? quote.regularMarketPreviousClose ?? null;
-        const priceData = {
+        const priceData: Record<string, any> = {
           asset_id: asset.id,
           last_price: lastPrice,
           change_percent: quote.regularMarketChangePercent ?? null,
           logo_url: quote.logourl ?? null,
           updated_at: now,
           source: "brapi",
+          sector: sector,
+          industry: industry,
         };
 
         const { error: priceErr } = await serviceClient
@@ -236,6 +251,8 @@ Deno.serve(async (req) => {
           step: limitedPlan ? "limited_plan" : "full",
           price: lastPrice,
           change: priceData.change_percent,
+          sector: sector,
+          industry: industry,
         });
       } catch (tickerErr) {
         results.push({ ticker: asset.ticker, ok: false, step: "catch", error: (tickerErr as Error).message });

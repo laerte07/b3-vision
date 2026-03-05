@@ -16,7 +16,7 @@ export interface Fundamentals {
   ebitda: number | null;
   net_debt: number | null;
   total_shares: number | null;
-  dividend_yield: number | null; // DY efetivo vindo do fundamentals_cache (se houver)
+  dividend_yield: number | null;
   margin: number | null;
   revenue_growth: number | null;
 }
@@ -36,6 +36,10 @@ export interface PortfolioAsset {
   price_updated_at: string | null;
   price_source: string | null;
 
+  // sector from price_cache
+  sector: string | null;
+  industry: string | null;
+
   // dividendos/cache
   div_12m: number | null;
   dy_12m: number | null;
@@ -44,29 +48,21 @@ export interface PortfolioAsset {
 
   /**
    * DY efetivo para usar na UI/score:
-   * prioridade: fundamentals.dividend_yield (API) -> dividends_cache.dy_12m -> null
+   * prioridade: manual override > fundamentals_cache > dividends_cache > null
    */
   effective_dy: number | null;
 }
 
 const toNum = (v: any): number | null => {
   if (v === null || v === undefined) return null;
-
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-
   if (typeof v === "string") {
     const s = v.trim();
     if (!s) return null;
-
-    // Aceita "13,06" e também "1.234,56"
-    const normalized = s.includes(",")
-      ? s.replace(/\./g, "").replace(",", ".")
-      : s;
-
+    const normalized = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s;
     const n = Number(normalized);
     return Number.isFinite(n) ? n : null;
   }
-
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
@@ -148,8 +144,12 @@ export const usePortfolio = () => {
         const div_12m = toNum(ovJson.div_12m) ?? toNum(div?.div_12m);
         const dy_12m = toNum(div?.dy_12m);
 
-        // ✅ DY efetivo: manual override > fundamentals_cache > dividends_cache
+        // DY efetivo: manual override > fundamentals_cache > dividends_cache
         const effective_dy = fundamentals?.dividend_yield ?? dy_12m ?? null;
+
+        // Sector from price_cache (populated by brapi-quote edge function)
+        const sector = (price as any)?.sector ?? null;
+        const industry = (price as any)?.industry ?? null;
 
         return {
           id: asset.id,
@@ -167,6 +167,9 @@ export const usePortfolio = () => {
           logo_url: price?.logo_url ?? null,
           price_updated_at: price?.updated_at ?? null,
           price_source: price?.source ?? null,
+
+          sector,
+          industry,
 
           div_12m,
           dy_12m,
@@ -297,10 +300,8 @@ export const useRefreshMarket = () => {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['portfolio'] });
 
-      // Debug completo
       console.log('RETORNO COMPLETO EDGE FUNCTION:', data);
 
-      // Compatível com payload antigo e novo
       const ok = Number(data?.ok_count ?? data?.updated ?? 0);
       const err = Number(data?.error_count ?? 0);
 
