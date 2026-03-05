@@ -328,8 +328,10 @@ export type Database = {
           asset_id: string
           change_percent: number | null
           id: string
+          industry: string | null
           last_price: number | null
           logo_url: string | null
+          sector: string | null
           source: string
           updated_at: string
         }
@@ -337,8 +339,10 @@ export type Database = {
           asset_id: string
           change_percent?: number | null
           id?: string
+          industry?: string | null
           last_price?: number | null
           logo_url?: string | null
+          sector?: string | null
           source?: string
           updated_at?: string
         }
@@ -346,8 +350,10 @@ export type Database = {
           asset_id?: string
           change_percent?: number | null
           id?: string
+          industry?: string | null
           last_price?: number | null
           logo_url?: string | null
+          sector?: string | null
           source?: string
           updated_at?: string
         }
