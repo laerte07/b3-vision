@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Plus, Pencil, Trash2, RefreshCw, BarChart3 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import FundamentalsDrawer from '@/components/FundamentalsDrawer';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { usePortfolio, useAddAsset, useUpdatePosition, useDeleteAsset, useRefreshMarket, PortfolioAsset } from '@/hooks/usePortfolio';
@@ -61,14 +62,24 @@ const Portfolio = () => {
     setForm({ ticker: asset.ticker, name: asset.name || '', class_id: asset.class_id, quantity: String(asset.quantity), avg_price: String(asset.avg_price) });
   };
 
-  const getStatus = (a: PortfolioAsset) => {
-    if (!a.price_source || a.price_source === 'manual') return { label: 'Manual', cls: 'border-warning/30 text-warning' };
-    if (a.price_updated_at) {
-      const mins = (Date.now() - new Date(a.price_updated_at).getTime()) / 60000;
-      if (mins < 60) return { label: 'Online', cls: 'border-positive/30 text-positive' };
-      return { label: 'Desatualizado', cls: 'border-warning/30 text-warning' };
-    }
-    return { label: 'Sem cotação', cls: 'border-muted-foreground/30 text-muted-foreground' };
+  const formatRelativeAge = (dateISO: string | null): { label: string; variant: 'ok' | 'warn' | 'muted'; fullDate: string | null } => {
+    if (!dateISO) return { label: 'Sem atualização', variant: 'muted', fullDate: null };
+    const ms = Date.now() - new Date(dateISO).getTime();
+    const mins = Math.floor(ms / 60000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    const full = new Date(dateISO).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    if (mins < 1) return { label: 'Atualizado agora', variant: 'ok', fullDate: full };
+    if (mins <= 59) return { label: `Atualizado há ${mins} min`, variant: 'ok', fullDate: full };
+    if (hours <= 23) return { label: `Desatualizado há ${hours} h`, variant: 'warn', fullDate: full };
+    return { label: `Desatualizado há ${days} d`, variant: 'warn', fullDate: full };
+  };
+
+  const statusBadgeClass: Record<string, string> = {
+    ok: 'border-positive/40 bg-positive/10 text-positive',
+    warn: 'border-warning/40 bg-warning/10 text-warning',
+    muted: 'border-muted-foreground/30 bg-muted/50 text-muted-foreground',
   };
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Carregando...</div>;
@@ -159,7 +170,7 @@ const Portfolio = () => {
                         const pctClass = classTotal > 0 ? (total / classTotal) * 100 : 0;
                         const pctPortfolio = totalPortfolio > 0 ? (total / totalPortfolio) * 100 : 0;
                         const gain = pos.avg_price > 0 ? ((price - pos.avg_price) / pos.avg_price) * 100 : 0;
-                        const status = getStatus(pos);
+                        const status = formatRelativeAge(pos.price_updated_at);
 
                         return (
                           <TableRow key={pos.id} className="hover:bg-muted/30">
@@ -175,7 +186,21 @@ const Portfolio = () => {
                             <TableCell className="text-right font-mono">{formatPct(pctPortfolio)}</TableCell>
                             <TableCell className="text-right font-mono">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
                             <TableCell>
-                              <Badge variant="outline" className={`text-[10px] ${status.cls}`}>{status.label}</Badge>
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className={`text-[10px] whitespace-nowrap ${statusBadgeClass[status.variant]}`}>{status.label}</Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    {status.fullDate ? (
+                                      <div className="space-y-0.5">
+                                        <div>Última atualização: {status.fullDate}</div>
+                                        {pos.price_source && <div>Fonte: {pos.price_source}</div>}
+                                      </div>
+                                    ) : 'Nenhuma atualização registrada'}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-1">
