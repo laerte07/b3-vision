@@ -90,54 +90,65 @@ export const usePortfolio = () => {
       const assetIds = (assets ?? []).map((a) => a.id);
       if (assetIds.length === 0) return [];
 
-      const [posRes, priceRes, divRes, fundRes] = await Promise.all([
+      const [posRes, priceRes, divRes, fundRes, overrideRes] = await Promise.all([
         supabase.from('positions').select('*').eq('user_id', user!.id).in('asset_id', assetIds),
         supabase.from('price_cache').select('*').in('asset_id', assetIds),
         supabase.from('dividends_cache').select('*').in('asset_id', assetIds),
         supabase.from('fundamentals_cache').select('*').in('asset_id', assetIds),
+        supabase.from('fundamentals_overrides').select('asset_id, override_json').eq('user_id', user!.id).in('asset_id', assetIds),
       ]);
 
-      // ✅ não mascarar erro silencioso
       if (posRes.error) throw posRes.error;
       if (priceRes.error) throw priceRes.error;
       if (divRes.error) throw divRes.error;
       if (fundRes.error) throw fundRes.error;
+      if (overrideRes.error) throw overrideRes.error;
 
       const positions = posRes.data ?? [];
       const prices = priceRes.data ?? [];
       const divs = divRes.data ?? [];
       const funds = fundRes.data ?? [];
+      const overrides = overrideRes.data ?? [];
 
       return (assets ?? []).map((asset) => {
         const pos = positions.find((p) => p.asset_id === asset.id);
         const price = prices.find((p) => p.asset_id === asset.id);
         const div = divs.find((d) => d.asset_id === asset.id);
         const fund = funds.find((f) => f.asset_id === asset.id);
+        const ov = overrides.find((o) => o.asset_id === asset.id);
+        const ovJson = (ov?.override_json ?? {}) as Record<string, any>;
 
-        const fundamentals: Fundamentals | null = fund
+        // Helper: manual override > cache value
+        const eff = (key: string, cacheVal: number | null): number | null => {
+          const manual = ovJson[key];
+          if (manual != null && typeof manual === 'number' && Number.isFinite(manual)) return manual;
+          return cacheVal;
+        };
+
+        const fundamentals: Fundamentals | null = fund || Object.keys(ovJson).length > 0
           ? {
-              lpa: toNum(fund.lpa),
-              vpa: toNum(fund.vpa),
-              roe: toNum(fund.roe),
-              roe_5y: toNum(fund.roe_5y),
-              payout: toNum(fund.payout),
-              payout_5y: toNum(fund.payout_5y),
-              pe_ratio: toNum(fund.pe_ratio),
-              pb_ratio: toNum(fund.pb_ratio),
-              ev: toNum(fund.ev),
-              ebitda: toNum(fund.ebitda),
-              net_debt: toNum(fund.net_debt),
-              total_shares: toNum(fund.total_shares),
-              dividend_yield: toNum(fund.dividend_yield),
-              margin: toNum(fund.margin),
-              revenue_growth: toNum(fund.revenue_growth),
+              lpa: eff('lpa', toNum(fund?.lpa)),
+              vpa: eff('vpa', toNum(fund?.vpa)),
+              roe: eff('roe', toNum(fund?.roe)),
+              roe_5y: toNum(fund?.roe_5y),
+              payout: eff('payout', toNum(fund?.payout)),
+              payout_5y: toNum(fund?.payout_5y),
+              pe_ratio: eff('pe_ratio', toNum(fund?.pe_ratio)),
+              pb_ratio: eff('pb_ratio', toNum(fund?.pb_ratio)),
+              ev: eff('ev', toNum(fund?.ev)),
+              ebitda: eff('ebitda', toNum(fund?.ebitda)),
+              net_debt: eff('net_debt', toNum(fund?.net_debt)),
+              total_shares: toNum(fund?.total_shares),
+              dividend_yield: eff('dividend_yield', toNum(fund?.dividend_yield)),
+              margin: eff('margin', toNum(fund?.margin)),
+              revenue_growth: eff('revenue_growth', toNum(fund?.revenue_growth)),
             }
           : null;
 
-        const div_12m = toNum(div?.div_12m);
+        const div_12m = toNum(ovJson.div_12m) ?? toNum(div?.div_12m);
         const dy_12m = toNum(div?.dy_12m);
 
-        // ✅ DY efetivo (é isso que sua UI deveria usar na coluna DY)
+        // ✅ DY efetivo: manual override > fundamentals_cache > dividends_cache
         const effective_dy = fundamentals?.dividend_yield ?? dy_12m ?? null;
 
         return {
