@@ -42,10 +42,10 @@ type Weights = { quality: number; growth: number; valuation: number; risk: numbe
 
 const SECTOR_WEIGHTS: Record<SectorGroup, Weights> = {
   base:        { quality: 25, growth: 20, valuation: 25, risk: 15, dividends: 15 },
-  financeiro:  { quality: 30, growth: 15, valuation: 20, risk: 15, dividends: 20 },
+  financeiro:  { quality: 30, growth: 10, valuation: 30, risk: 15, dividends: 15 },
   utilities:   { quality: 30, growth: 10, valuation: 20, risk: 25, dividends: 15 },
   tecnologia:  { quality: 20, growth: 35, valuation: 25, risk: 10, dividends: 10 },
-  commodities: { quality: 20, growth: 15, valuation: 35, risk: 20, dividends: 10 },
+  commodities: { quality: 20, growth: 10, valuation: 35, risk: 25, dividends: 10 },
   consumo:     { quality: 30, growth: 20, valuation: 20, risk: 15, dividends: 15 },
 };
 
@@ -55,26 +55,36 @@ function removeAccents(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-function detectSectorGroup(sector: string | null, industry: string | null): SectorGroup {
+function detectSectorGroup(sector: string | null, industry: string | null, ticker?: string): SectorGroup {
+  // Try ticker-based heuristic first for known BR tickers when API sector is missing
+  if ((!sector && !industry) && ticker) {
+    const t = ticker.toUpperCase();
+    // Banks / financial holdings
+    if (/^(ITUB|BBDC|BBAS|SANB|ITSA|BPAC|BRBI|BBSE|WIZC|PSSA|CXSE|IRBR|SULA|B3SA)/.test(t)) return 'financeiro';
+    // Utilities / energy
+    if (/^(CMIG|ELET|ENBR|CPFE|EQTL|TAEE|ENGI|AURE|CPLE|NEOE|SAPR|SBSP|CESP|TRPL|AESB|CSMG|LIGT)/.test(t)) return 'utilities';
+    // Commodities / oil / mining / agro
+    if (/^(PETR|VALE|CSNA|GGBR|USIM|GOAU|CMIN|BRAP|SUZB|KLBN|DXCO|SOJA|SLCE|AGRO|PRIO|RECV|RRRP|VBBR)/.test(t)) return 'commodities';
+    // Tech
+    if (/^(TOTS|LWSA|POSI|CASH|MLAS|BMOB|NGRD|SQIA|INTB)/.test(t)) return 'tecnologia';
+    // Consumer defensive
+    if (/^(ABEV|NTCO|RADL|PCAR|AMER|LREN|MGLU|ARZZ|AZZA|ODPV|HAPV|RDOR|HYPE|FLRY|GRND|VULC|MDIA|RAIZ)/.test(t)) return 'consumo';
+  }
+
   if (!sector && !industry) return 'base';
   const text = removeAccents(`${sector ?? ''} ${industry ?? ''}`.toLowerCase());
 
-  // Financeiro
-  if (/bank|banco|financ|seguro|insurance|asset management|capital market/i.test(text)) return 'financeiro';
-  // Utilities
+  if (/bank|banco|financ|seguro|insurance|asset management|capital market|holding|brokerage/i.test(text)) return 'financeiro';
   if (/utilit|energy|energia|electric|eletric|saneamento|water|gas natural|power/i.test(text)) return 'utilities';
-  // Tecnologia
   if (/tech|software|internet|semiconduc|cloud|saas|digital|information/i.test(text)) return 'tecnologia';
-  // Commodities
   if (/commod|oil|gas|petrol|petroleo|mining|mineracao|steel|siderurg|papel|celulose|basic material|agri/i.test(text)) return 'commodities';
-  // Consumo defensivo
   if (/consumer defensive|consumo|food|beverage|bebida|retail|varejo|farmac|pharma|health|saude/i.test(text)) return 'consumo';
 
   return 'base';
 }
 
 // ============================================================
-// SCORING ENGINE v2 — REALISTIC & SECTOR-AWARE
+// SCORING ENGINE v3 — REALISTIC, SECTOR-AWARE, DEFLATED
 // ============================================================
 
 interface PillarScore {
@@ -100,21 +110,31 @@ function clamp(v: number, min: number, max: number): number {
 
 function clamp01(v: number): number { return clamp(v, 0, 1); }
 
-function normBetween(value: number | null | undefined, min: number, max: number, inverse = false): number | null {
-  if (value == null || !Number.isFinite(value) || max === min) return null;
-  const raw = inverse ? (max - value) / (max - min) : (value - min) / (max - min);
+/**
+ * Smooth normalization with sigmoid-like curve.
+ * Returns 0-1 where the midpoint gives 0.5.
+ */
+function normSmooth(value: number | null | undefined, low: number, high: number, inverse = false): number | null {
+  if (value == null || !Number.isFinite(value) || high === low) return null;
+  const v = inverse ? -value : value;
+  const l = inverse ? -high : low;
+  const h = inverse ? -low : high;
+  const raw = (v - l) / (h - l);
   return clamp01(raw);
 }
 
+/**
+ * Score band for payout-like metrics.
+ */
 function scoreBand(
   value: number | null | undefined,
   goodMin: number, goodMax: number,
   okMin: number, okMax: number
 ): number | null {
   if (value == null || !Number.isFinite(value)) return null;
-  if (value >= goodMin && value <= goodMax) return 1;
-  if (value >= okMin && value <= okMax) return 0.7;
-  return 0.3;
+  if (value >= goodMin && value <= goodMax) return 0.85; // not 1.0 — harder to get perfect
+  if (value >= okMin && value <= okMax) return 0.55;
+  return 0.2;
 }
 
 function redistributeWeights(base: Weights, pillars: Record<keyof Weights, number | null>): Weights {
@@ -146,6 +166,22 @@ function computeTotal(pillars: Record<keyof Weights, number | null>, weights: We
   return haveAny ? total : 0;
 }
 
+/**
+ * Compression curve: makes scores above 75 progressively harder.
+ * Maps [0,100] → [0,100] but compresses the top end.
+ * 50 → ~48, 70 → ~65, 80 → ~73, 90 → ~82, 100 → ~92
+ */
+function compressScore(raw: number): number {
+  if (raw <= 0) return 0;
+  const x = clamp(raw, 0, 100);
+  // Piecewise: linear below 60, compressed above
+  if (x <= 60) return x * 0.9; // 60 raw → 54
+  // Logarithmic compression above 60
+  const excess = x - 60;
+  const compressed = 54 + excess * (0.95 - excess * 0.005); // diminishing returns
+  return clamp(compressed, 0, 95); // hard cap at 95
+}
+
 function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<string, PillarScore> {
   const map = new Map<string, PillarScore>();
   if (stocks.length === 0) return map;
@@ -153,7 +189,7 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
   for (const stock of stocks) {
     const f = stock.fundamentals;
     const alerts: string[] = [];
-    const sectorGroup = detectSectorGroup(stock.sector, stock.industry);
+    const sectorGroup = detectSectorGroup(stock.sector, stock.industry, stock.ticker);
     const sectorLabel = SECTOR_LABELS[sectorGroup];
     const sectorW = SECTOR_WEIGHTS[sectorGroup];
 
@@ -171,33 +207,36 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
     const debtEbitda = f?.net_debt != null && f?.ebitda != null && Math.abs(f.ebitda) > 1000
       ? f.net_debt / f.ebitda : null;
 
-    // ROE: clamp at 60% to avoid outlier inflation
+    // ROE: clamp at 60%
     const roeClamped = roe != null ? clamp(roe, -10, 60) : null;
-    if (roe != null && roe > 60) { alerts.push(`ROE outlier (${roe.toFixed(0)}%) — limitado a 60% no score`); outlierCount++; }
+    if (roe != null && roe > 60) { alerts.push(`ROE outlier (${roe.toFixed(0)}%) — limitado a 60%`); outlierCount++; }
     if (roe != null && roe < 5) alerts.push('ROE baixo (<5%) — qualidade pressionada');
 
-    const roeN = normBetween(roeClamped, 0, 25);
-    // Margin: commodities get lower weight internally
-    const marginW = sectorGroup === 'commodities' ? 0.15 : 0.35;
-    const marginN = normBetween(margin, 0, 30);
-    const debtN = normBetween(debtEbitda, 0, 4, true);
+    // Normalize ROE: 0% → 0, 20% → 0.8, 25%+ → 1.0
+    const roeN = normSmooth(roeClamped, 0, 25);
+    // Margin: adjust benchmark by sector
+    const marginBench = sectorGroup === 'commodities' ? 20 : sectorGroup === 'financeiro' ? 30 : 25;
+    const marginW = sectorGroup === 'commodities' ? 0.15 : 0.30;
+    const marginN = normSmooth(margin, 0, marginBench);
+    // Debt/EBITDA: skip for financeiro (not meaningful)
+    const debtN = sectorGroup === 'financeiro' ? null : normSmooth(debtEbitda, 0, 4, true);
 
-    if (debtEbitda != null && debtEbitda > 4) alerts.push('Dívida/EBITDA alto (>4) — atenção ao risco financeiro');
-    if (f?.ebitda != null && Math.abs(f.ebitda) <= 1000) alerts.push('EBITDA muito pequeno — Dívida/EBITDA ignorado');
+    if (debtEbitda != null && debtEbitda > 4) alerts.push('Dívida/EBITDA alto (>4) — atenção ao risco');
+    if (sectorGroup !== 'financeiro' && f?.ebitda != null && Math.abs(f.ebitda) <= 1000) alerts.push('EBITDA muito pequeno — Dívida/EBITDA ignorado');
 
-    metricsTotal += 3;
+    metricsTotal += sectorGroup === 'financeiro' ? 2 : 3;
     if (roeN != null) metricsUsed++;
     if (marginN != null) metricsUsed++;
     if (debtN != null) metricsUsed++;
 
     const qParts = [
-      { w: 0.45, v: roeN },
+      { w: 0.50, v: roeN },
       { w: marginW, v: marginN },
-      { w: 0.20, v: debtN },
+      { w: sectorGroup === 'financeiro' ? 0 : 0.20, v: debtN },
     ];
-    const qW = qParts.filter(p => p.v != null).reduce((s, p) => s + p.w, 0);
+    const qW = qParts.filter(p => p.v != null && p.w > 0).reduce((s, p) => s + p.w, 0);
     const qualityNorm = qW > 0
-      ? qParts.filter(p => p.v != null).reduce((s, p) => s + p.w * (p.v as number), 0) / qW
+      ? qParts.filter(p => p.v != null && p.w > 0).reduce((s, p) => s + p.w * (p.v as number), 0) / qW
       : null;
     const qualityScore = qualityNorm != null ? qualityNorm * BASE_WEIGHTS.quality : null;
 
@@ -205,37 +244,51 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
     const payout = f?.payout ?? null;
     const payoutClamped = payout != null ? clamp(payout, 0, 100) : null;
     if (payout != null && payout > 100) { alerts.push(`Payout outlier (${payout.toFixed(0)}%) — distribuindo mais do que lucra`); outlierCount++; }
-    if (payout != null && payout > 90) alerts.push('Payout > 90% — dividendo pode ser pouco sustentável');
+    if (payout != null && payout > 90) alerts.push('Payout > 90% — dividendo pode ser insustentável');
 
-    const revenueGrowth = f?.revenue_growth ?? null;
+    let revenueGrowth = f?.revenue_growth ?? null;
+    // BRAPI returns revenue_growth as ratio * 100 which can be inflated.
+    // Cap at 50% — anything above is likely data error or exceptional one-off
+    if (revenueGrowth != null && revenueGrowth > 50) {
+      alerts.push(`Revenue growth (${revenueGrowth.toFixed(0)}%) parece inflado — limitado a 50%`);
+      revenueGrowth = 50;
+      outlierCount++;
+    }
+
     const sustainableGrowth = roeClamped != null && payoutClamped != null
       ? roeClamped * (1 - payoutClamped / 100) : null;
 
-    // For banks, use more conservative benchmark
-    const growthBenchMax = sectorGroup === 'financeiro' ? 15 : 20;
-    const sGrowN = normBetween(sustainableGrowth, 0, growthBenchMax);
-    const revGrowN = normBetween(revenueGrowth, -10, growthBenchMax);
+    // Conservative benchmarks by sector
+    const growthBenchMax = sectorGroup === 'financeiro' ? 12
+      : sectorGroup === 'utilities' ? 8
+      : sectorGroup === 'commodities' ? 10
+      : sectorGroup === 'consumo' ? 15
+      : 20; // tecnologia / base
+
+    const sGrowN = normSmooth(sustainableGrowth, -2, growthBenchMax);
+    const revGrowN = revenueGrowth != null ? normSmooth(revenueGrowth, -5, growthBenchMax) : null;
 
     metricsTotal += 2;
-    if (sGrowN != null) metricsUsed++;
-    if (revGrowN != null) metricsUsed++;
+    let growthNorm: number | null = null;
+    if (sGrowN != null && revGrowN != null) {
+      // Both available: weighted combo (sustainable growth is more reliable)
+      growthNorm = sGrowN * 0.55 + revGrowN * 0.45;
+      metricsUsed += 2;
+    } else if (sGrowN != null) {
+      growthNorm = sGrowN;
+      metricsUsed++;
+    } else if (revGrowN != null) {
+      growthNorm = revGrowN;
+      metricsUsed++;
+    }
 
-    const gParts = [
-      { w: 0.60, v: sGrowN },
-      { w: 0.40, v: revGrowN },
-    ];
-    const gW = gParts.filter(p => p.v != null).reduce((s, p) => s + p.w, 0);
-    const growthNorm = gW > 0
-      ? gParts.filter(p => p.v != null).reduce((s, p) => s + p.w * (p.v as number), 0) / gW
-      : null;
     const growthScore = growthNorm != null ? growthNorm * BASE_WEIGHTS.growth : null;
-    if (growthScore == null) alerts.push('Sem dados suficientes para Crescimento');
+    if (growthScore == null) alerts.push('Sem dados para pilar Crescimento');
 
-    // Check unsustainable growth
-    if (sustainableGrowth != null && roeClamped != null) {
-      const sustainableLimit = roeClamped * (1 - (payoutClamped ?? 0) / 100) + 5;
-      if (revenueGrowth != null && revenueGrowth > sustainableLimit) {
-        alerts.push(`Crescimento pode ser insustentável (revenue ${revenueGrowth.toFixed(1)}% > ROE sustentável + 5%)`);
+    // Unsustainable growth check
+    if (sustainableGrowth != null && roeClamped != null && revenueGrowth != null) {
+      if (revenueGrowth > (sustainableGrowth + 5)) {
+        alerts.push(`Crescimento possivelmente insustentável (${revenueGrowth.toFixed(1)}% > sustentável ${sustainableGrowth.toFixed(1)}%)`);
       }
     }
 
@@ -247,23 +300,43 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
 
     // Outlier detection
     if (pe != null && (pe < 3 || pe > 60)) {
-      alerts.push(`P/L fora do padrão (${pe.toFixed(1)}) — peso reduzido no cálculo`);
+      alerts.push(`P/L fora do padrão (${pe.toFixed(1)}) — peso reduzido`);
+      outlierCount++;
+    }
+    if (pb != null && pb > 10) {
+      alerts.push(`P/VP muito alto (${pb.toFixed(1)}) — possível distorção`);
       outlierCount++;
     }
 
-    const peN = pe != null && pe > 0 ? normBetween(clamp(pe, 3, 60), 5, 25, true) : null;
-    const pbN = pb != null && pb > 0 ? normBetween(pb, 0.8, 3, true) : null;
-    const evN = evEbitda != null && evEbitda > 0 ? normBetween(evEbitda, 4, 12, true) : null;
+    // P/L: wider ranges, sector-dependent
+    const peBenchMax = sectorGroup === 'financeiro' ? 15 : sectorGroup === 'utilities' ? 18 : sectorGroup === 'tecnologia' ? 30 : 20;
+    const peBenchMin = 4;
+    const peN = pe != null && pe > 0 ? normSmooth(clamp(pe, 3, 80), peBenchMin, peBenchMax, true) : null;
 
-    // Sector-specific sub-weights for valuation internals
-    let peW = 0.45, pbW = 0.25, evW = 0.30;
-    if (sectorGroup === 'financeiro') { peW = 0.30; pbW = 0.50; evW = 0.20; }
-    if (sectorGroup === 'commodities') { peW = 0.25; pbW = 0.25; evW = 0.50; }
+    // P/VP: sector-dependent ranges
+    const pbBenchMax = sectorGroup === 'financeiro' ? 2.5 : sectorGroup === 'commodities' ? 2 : 3.5;
+    const pbN = pb != null && pb > 0 ? normSmooth(clamp(pb, 0.3, 10), 0.5, pbBenchMax, true) : null;
+
+    // EV/EBITDA: skip for financeiro entirely (meaningless)
+    const evN = sectorGroup === 'financeiro' ? null
+      : (evEbitda != null && evEbitda > 0 ? normSmooth(clamp(evEbitda, 2, 30), 4, 14, true) : null);
+
+    // Sector-specific sub-weights
+    let peW: number, pbW: number, evW: number;
+    if (sectorGroup === 'financeiro') {
+      peW = 0.30; pbW = 0.70; evW = 0; // ignore EV/EBITDA
+    } else if (sectorGroup === 'commodities') {
+      peW = 0.25; pbW = 0.25; evW = 0.50;
+    } else if (sectorGroup === 'utilities') {
+      peW = 0.35; pbW = 0.25; evW = 0.40;
+    } else {
+      peW = 0.40; pbW = 0.25; evW = 0.35;
+    }
 
     // Reduce P/L weight if outlier
-    if (pe != null && (pe < 3 || pe > 60)) peW *= 0.5;
+    if (pe != null && (pe < 3 || pe > 60)) peW *= 0.4;
 
-    metricsTotal += 3;
+    metricsTotal += sectorGroup === 'financeiro' ? 2 : 3;
     if (peN != null) metricsUsed++;
     if (pbN != null) metricsUsed++;
     if (evN != null) metricsUsed++;
@@ -272,40 +345,39 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
       { w: peW, v: peN },
       { w: pbW, v: pbN },
       { w: evW, v: evN },
-    ];
+    ].filter(p => p.w > 0);
     const vW = vParts.filter(p => p.v != null).reduce((s, p) => s + p.w, 0);
     const valuationNorm = vW > 0
       ? vParts.filter(p => p.v != null).reduce((s, p) => s + p.w * (p.v as number), 0) / vW
       : null;
     const valuationScore = valuationNorm != null ? valuationNorm * BASE_WEIGHTS.valuation : null;
-    if (valuationScore == null) alerts.push('Sem dados suficientes para Valuation');
+    if (valuationScore == null) alerts.push('Sem dados para pilar Valuation');
 
     // =========== RISK ===========
     const changePercent = stock.change_percent ?? null;
     const volAbs = changePercent != null ? Math.abs(changePercent) : null;
 
-    // Progressive concentration penalty
-    const concN = pctPortfolio <= 5 ? 1.0
-      : pctPortfolio <= 10 ? 0.85
-      : pctPortfolio <= 15 ? 0.65
-      : pctPortfolio <= 25 ? 0.35
-      : 0.1;
+    // Progressive concentration penalty (steeper)
+    const concN = pctPortfolio <= 5 ? 0.9
+      : pctPortfolio <= 10 ? 0.7
+      : pctPortfolio <= 15 ? 0.45
+      : pctPortfolio <= 25 ? 0.2
+      : 0.05;
 
-    const volN = normBetween(volAbs, 0, 8, true);
-    // Debt/EBITDA has higher weight for utilities
+    const volN = normSmooth(volAbs, 0, 6, true);
     const debtRiskW = sectorGroup === 'utilities' ? 0.40 : 0.25;
-    const volW2 = sectorGroup === 'utilities' ? 0.20 : 0.35;
+    const volW2 = sectorGroup === 'utilities' ? 0.15 : 0.30;
 
-    metricsTotal += 3;
+    metricsTotal += sectorGroup === 'financeiro' ? 2 : 3;
     if (volN != null) metricsUsed++;
     metricsUsed++; // concentration always available
-    if (debtN != null) metricsUsed++;
+    if (sectorGroup !== 'financeiro' && debtN != null) metricsUsed++;
 
     const rParts = [
       { w: volW2, v: volN },
-      { w: 0.35, v: concN },
-      { w: debtRiskW, v: debtN },
-    ];
+      { w: 0.40, v: concN },
+      { w: sectorGroup === 'financeiro' ? 0 : debtRiskW, v: sectorGroup === 'financeiro' ? null : debtN },
+    ].filter(p => p.w > 0);
     const rW = rParts.filter(p => p.v != null).reduce((s, p) => s + p.w, 0);
     const riskNorm = rW > 0
       ? rParts.filter(p => p.v != null).reduce((s, p) => s + p.w * (p.v as number), 0) / rW
@@ -313,20 +385,20 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
     const riskScore = riskNorm != null ? riskNorm * BASE_WEIGHTS.risk : null;
 
     if (pctPortfolio > 15) alerts.push(`Concentração elevada: ${pctPortfolio.toFixed(1)}% da carteira`);
-    if (pctPortfolio > 10) alerts.push(`Atenção concentração: ${pctPortfolio.toFixed(1)}% da carteira`);
+    else if (pctPortfolio > 10) alerts.push(`Atenção concentração: ${pctPortfolio.toFixed(1)}% da carteira`);
 
     // =========== DIVIDENDS ===========
     const dy = stock.effective_dy ?? null;
-    const dyN = normBetween(dy, 0, 12);
-    const payoutBandVal = scoreBand(payoutClamped, 30, 70, 20, 80);
+    const dyN = normSmooth(dy, 0, 10); // 10% DY = max score (harder than 12%)
+    const payoutBandVal = scoreBand(payoutClamped, 30, 70, 15, 85);
 
     metricsTotal += 2;
     if (dyN != null) metricsUsed++;
     if (payoutBandVal != null) metricsUsed++;
 
     const dParts = [
-      { w: 0.60, v: dyN },
-      { w: 0.40, v: payoutBandVal },
+      { w: 0.65, v: dyN },
+      { w: 0.35, v: payoutBandVal },
     ];
     const dW = dParts.filter(p => p.v != null).reduce((s, p) => s + p.w, 0);
     const divNorm = dW > 0
@@ -339,7 +411,7 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
     }
 
     // Smart alerts
-    if (sectorGroup === 'tecnologia' && dividendsScore != null && dividendsScore > BASE_WEIGHTS.dividends * 0.7) {
+    if (sectorGroup === 'tecnologia' && dividendsScore != null && divNorm != null && divNorm > 0.7) {
       alerts.push('Score inflado por Dividendos em setor de crescimento');
     }
     if (growthNorm != null && growthNorm > 0.7 && riskNorm != null && riskNorm < 0.4) {
@@ -362,43 +434,57 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
     const coverage = metricsTotal > 0 ? metricsUsed / metricsTotal : 0;
     const confidence = clamp01(coverage - outlierCount * 0.05);
 
-    // Low coverage penalty
+    // Low coverage penalty (steeper)
     if (coverage < 0.6) {
-      const penalty = 0.85 + 0.15 * coverage;
+      const penalty = 0.75 + 0.25 * coverage; // at 0.3 coverage → 0.825 penalty
       totalBase *= penalty;
       totalAdjusted *= penalty;
       alerts.push(`Baixa cobertura (${Math.round(coverage * 100)}%) → score penalizado`);
+    } else if (coverage < 0.4) {
+      totalBase *= 0.7;
+      totalAdjusted *= 0.7;
+      alerts.push(`Cobertura muito baixa (${Math.round(coverage * 100)}%) → score muito penalizado`);
     }
 
     // ROE < 5% or low quality caps
     if (roeClamped != null && roeClamped < 5) {
-      totalBase = Math.min(totalBase, 70);
-      totalAdjusted = Math.min(totalAdjusted, 70);
+      totalBase = Math.min(totalBase, 60);
+      totalAdjusted = Math.min(totalAdjusted, 60);
     }
-    if (qualityNorm != null && qualityNorm < 0.3) {
-      totalBase = Math.min(totalBase, 70);
-      totalAdjusted = Math.min(totalAdjusted, 70);
+    if (qualityNorm != null && qualityNorm < 0.25) {
+      totalBase = Math.min(totalBase, 65);
+      totalAdjusted = Math.min(totalAdjusted, 65);
     }
 
     // Negative earnings penalty
     if (f?.lpa != null && f.lpa < 0) {
-      totalBase *= 0.75;
-      totalAdjusted *= 0.75;
+      totalBase *= 0.70;
+      totalAdjusted *= 0.70;
       alerts.push('Lucro por ação negativo — score penalizado');
     }
 
-    // Negative margin of safety
+    // Negative margin penalty
     if (margin != null && margin < 0) {
-      totalBase *= 0.85;
-      totalAdjusted *= 0.85;
+      totalBase *= 0.80;
+      totalAdjusted *= 0.80;
       alerts.push('Margem negativa — score penalizado');
     }
 
-    // Debug in dev
+    // ===== COMPRESSION: make 85+ rare =====
+    totalBase = compressScore(totalBase);
+    totalAdjusted = compressScore(totalAdjusted);
+
+    // Debug logging (dev only)
     if (import.meta.env.DEV) {
-      console.log(`[SCORE] ${stock.ticker}: sector=${sectorGroup}, coverage=${(coverage*100).toFixed(0)}%, ` +
-        `base=${totalBase.toFixed(1)}, adj=${totalAdjusted.toFixed(1)}, ` +
-        `DY=${stock.effective_dy}, ROE=${roe}, payout=${payout}`);
+      console.log(
+        `[SCORE DEBUG] ${stock.ticker}:\n` +
+        `  sector=${stock.sector ?? 'null'} | industry=${stock.industry ?? 'null'} | mapped=${sectorGroup}\n` +
+        `  GROWTH: revenueGrowth=${f?.revenue_growth?.toFixed(1) ?? 'null'} (capped=${revenueGrowth?.toFixed(1) ?? 'null'}), ` +
+        `sustainableGrowth=${sustainableGrowth?.toFixed(1) ?? 'null'}, sGrowN=${sGrowN?.toFixed(3) ?? 'null'}, revGrowN=${revGrowN?.toFixed(3) ?? 'null'}, growthNorm=${growthNorm?.toFixed(3) ?? 'null'}\n` +
+        `  VALUATION: pe=${pe?.toFixed(1) ?? 'null'}, pb=${pb?.toFixed(1) ?? 'null'}, evEbitda=${evEbitda?.toFixed(1) ?? 'null'}, peN=${peN?.toFixed(3) ?? 'null'}, pbN=${pbN?.toFixed(3) ?? 'null'}, evN=${evN?.toFixed(3) ?? 'null'}\n` +
+        `  SCORES: quality=${qualityScore?.toFixed(1) ?? 'N/D'}, growth=${growthScore?.toFixed(1) ?? 'N/D'}, val=${valuationScore?.toFixed(1) ?? 'N/D'}, risk=${riskScore?.toFixed(1) ?? 'N/D'}, div=${dividendsScore?.toFixed(1) ?? 'N/D'}\n` +
+        `  TOTAL: base=${totalBase.toFixed(1)}, adjusted=${totalAdjusted.toFixed(1)}, coverage=${(coverage*100).toFixed(0)}%, DY=${stock.effective_dy ?? 'null'}`
+      );
     }
 
     map.set(stock.id, {
@@ -423,16 +509,17 @@ function computeScores(stocks: PortfolioAsset[], totalPortfolio: number): Map<st
 }
 
 function scoreColor(score: number): string {
-  if (score >= 85) return 'text-emerald-500';
-  if (score >= 70) return 'text-blue-500';
-  if (score >= 55) return 'text-yellow-500';
+  if (score >= 80) return 'text-emerald-500';
+  if (score >= 65) return 'text-blue-500';
+  if (score >= 50) return 'text-yellow-500';
   return 'text-red-500';
 }
 
 function scoreBadgeEl(score: number) {
-  if (score >= 85) return <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30">Excelente</Badge>;
-  if (score >= 70) return <Badge className="bg-blue-500/15 text-blue-500 border-blue-500/30">Muito bom</Badge>;
-  if (score >= 55) return <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30">Bom</Badge>;
+  if (score >= 80) return <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30">Excelente</Badge>;
+  if (score >= 65) return <Badge className="bg-blue-500/15 text-blue-500 border-blue-500/30">Muito bom</Badge>;
+  if (score >= 50) return <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30">Bom</Badge>;
+  if (score >= 35) return <Badge className="bg-orange-500/15 text-orange-500 border-orange-500/30">Regular</Badge>;
   return <Badge className="bg-red-500/15 text-red-500 border-red-500/30">Fraco</Badge>;
 }
 
@@ -807,7 +894,7 @@ const Score = () => {
                         <TableCell className="font-medium">{r.ticker}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                            {r.score.sectorGroup !== 'base' ? r.score.sectorLabel.split(' / ')[0] : '—'}
+                            {r.score.sectorLabel.split(' / ')[0]}
                           </Badge>
                         </TableCell>
                         <TableCell className={`text-center font-mono text-xs ${scoreColor(r.score.totalBase)}`}>
