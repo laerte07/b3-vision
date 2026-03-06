@@ -64,6 +64,37 @@ async function fetchBrapi(ticker: string, brapiToken: string): Promise<{ data: a
   return { data: null, raw: fullRaw, status: fullRes.status, limitedPlan: false };
 }
 
+/**
+ * Extract sector/industry from BRAPI response.
+ * BRAPI can return this data in multiple locations depending on the plan and ticker:
+ * - quote.summaryProfile.sector / quote.summaryProfile.industry
+ * - quote.summaryProfile.sectorKey / quote.summaryProfile.industryKey
+ * - quote.sector / quote.industry
+ * - quote.sectorDisp / quote.industryDisp
+ */
+function extractSector(quote: any): { sector: string | null; industry: string | null } {
+  const profile = quote.summaryProfile ?? {};
+
+  // Try all known field paths
+  const sector = profile.sector
+    ?? profile.sectorDisp
+    ?? profile.sectorKey
+    ?? quote.sector
+    ?? quote.sectorDisp
+    ?? quote.sectorKey
+    ?? null;
+
+  const industry = profile.industry
+    ?? profile.industryDisp
+    ?? profile.industryKey
+    ?? quote.industry
+    ?? quote.industryDisp
+    ?? quote.industryKey
+    ?? null;
+
+  return { sector: sector || null, industry: industry || null };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -162,10 +193,12 @@ Deno.serve(async (req) => {
         const quote = brapiData.results[0];
         const now = new Date().toISOString();
 
-        // ---- Extract sector/industry from summaryProfile ----
-        const profile = quote.summaryProfile ?? {};
-        const sector = profile.sector ?? quote.sector ?? null;
-        const industry = profile.industry ?? quote.industry ?? null;
+        // ---- Extract sector/industry (robust multi-path) ----
+        const { sector, industry } = extractSector(quote);
+        // Debug: log all potential sector paths
+        console.log(`[SECTOR DEBUG] ${asset.ticker}: sector=${sector}, industry=${industry}, ` +
+          `profile=${JSON.stringify(quote.summaryProfile ?? {}).slice(0, 200)}, ` +
+          `quoteSector=${quote.sector ?? 'null'}, quoteIndustry=${quote.industry ?? 'null'}`);
 
         // ---- PRICE CACHE (always first, always required) ----
         const lastPrice = quote.regularMarketPrice ?? quote.regularMarketPreviousClose ?? null;
