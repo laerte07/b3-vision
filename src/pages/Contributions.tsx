@@ -77,7 +77,7 @@ const Contributions = () => {
   const updateNote = useUpdateContributionNote();
 
   // --- State ---
-  const [aporteValue, setAporteValue] = useState(5000);
+  const [aporteValue, setAporteValue] = useState(0);
   const [aporteDate, setAporteDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<AllocMode>('score_rebalanceamento');
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
@@ -215,7 +215,7 @@ const Contributions = () => {
           });
         }
       }
-      return results.filter(s => s.suggestedQty > 0);
+      return results;
     }
 
     // Rebalanceamento or Score + Rebalanceamento
@@ -226,7 +226,7 @@ const Contributions = () => {
       const idealValue = totalWithAporte * (target.target_percent / 100);
       const deficit = idealValue - currentValue;
       return { classId: target.class_id, className: cls?.name ?? '?', positions, currentValue, idealValue, deficit, targetPct: target.target_percent };
-    }).filter(cd => cd.deficit > 10).sort((a, b) => b.deficit - a.deficit);
+    }).filter(cd => cd.deficit > 0).sort((a, b) => b.deficit - a.deficit);
 
     let remaining = aporteValue;
     const results: SuggestionItem[] = [];
@@ -248,17 +248,15 @@ const Contributions = () => {
 
       if (sortedAssets.length === 0) continue;
 
-      // Distribute within class — prioritize top assets
+      // Distribute within class — try each asset in priority order
       let classRemaining = classAlloc;
       for (let i = 0; i < sortedAssets.length && classRemaining > 0; i++) {
         const asset = sortedAssets[i];
         const price = asset.last_price ?? asset.avg_price;
         if (price <= 0) continue;
 
-        // Give more to higher-ranked assets
-        const share = i === 0 ? Math.min(classRemaining, classAlloc * 0.6) : classRemaining;
-        const qty = Math.floor(share / price);
-        if (qty <= 0) continue;
+        const qty = Math.floor(classRemaining / price);
+        if (qty <= 0) continue; // can't afford this asset, try next (cheaper) one
 
         const actualAmt = qty * price;
         const currentVal = asset.quantity * price;
@@ -280,7 +278,7 @@ const Contributions = () => {
           price,
           suggestedAmount: actualAmt,
           suggestedQty: qty,
-          remainder: share - actualAmt,
+          remainder: classRemaining - actualAmt,
           reason,
         });
 
@@ -294,6 +292,16 @@ const Contributions = () => {
 
   const totalSuggested = suggestions.reduce((s, item) => s + item.suggestedAmount, 0);
   const totalRemainder = aporteValue - totalSuggested;
+
+  // Minimum eligible price for current strategy
+  const minEligiblePrice = useMemo(() => {
+    if (aporteValue <= 0 || portfolio.length === 0) return 0;
+    const activeAssets = portfolio.filter(p => p.quantity > 0 || p.active);
+    const prices = activeAssets
+      .map(a => a.last_price ?? a.avg_price)
+      .filter(p => p > 0);
+    return prices.length > 0 ? Math.min(...prices) : 0;
+  }, [aporteValue, portfolio]);
 
   // ============================================================
   // IMPACT PROJECTION
@@ -480,7 +488,7 @@ const Contributions = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label>Valor do aporte (R$)</Label>
-              <Input type="number" value={aporteValue} onChange={e => setAporteValue(Number(e.target.value))} className="font-mono" />
+              <Input type="number" min={0} value={aporteValue || ''} onChange={e => setAporteValue(Number(e.target.value) || 0)} className="font-mono" placeholder="0" />
             </div>
             <div className="space-y-2">
               <Label>Data do aporte</Label>
@@ -550,11 +558,11 @@ const Contributions = () => {
       </Card>
 
       {/* ========== BLOCO 3: SUGESTÃO DE ALOCAÇÃO ========== */}
-      {suggestions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Sugestão de Alocação</CardTitle>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Sugestão de Alocação</CardTitle>
+            {suggestions.length > 0 && (
               <div className="flex items-center gap-3">
                 <Badge variant="outline" className="font-mono text-xs">
                   Alocado: {formatBRL(totalSuggested)}
@@ -565,50 +573,70 @@ const Contributions = () => {
                   </Badge>
                 )}
               </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {aporteValue <= 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <DollarSign className="h-8 w-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">Informe um valor de aporte para gerar a simulação.</p>
             </div>
-          </CardHeader>
-          <CardContent className="overflow-x-auto p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">Ativo</TableHead>
-                  <TableHead className="font-semibold">Classe</TableHead>
-                  <TableHead className="font-semibold">Setor</TableHead>
-                  <TableHead className="text-center font-semibold">Score</TableHead>
-                  <TableHead className="text-right font-semibold">% Atual</TableHead>
-                  <TableHead className="text-right font-semibold">% Projetada</TableHead>
-                  <TableHead className="text-right font-semibold">Preço</TableHead>
-                  <TableHead className="text-right font-semibold">Valor</TableHead>
-                  <TableHead className="text-right font-semibold">Qtde</TableHead>
-                  <TableHead className="text-right font-semibold">Sobra</TableHead>
-                  <TableHead className="font-semibold">Motivo</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {suggestions.map(s => (
-                  <TableRow key={s.asset.id} className="hover:bg-muted/30">
-                    <TableCell className="font-medium">{s.asset.ticker}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.className}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">{s.sector || '—'}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center font-mono text-xs">{s.score}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{formatPct(s.pctCurrent)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{formatPct(s.pctProjected)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{formatBRL(s.price)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs font-bold text-primary">{formatBRL(s.suggestedAmount)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{s.suggestedQty}</TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">{formatBRL(s.remainder)}</TableCell>
-                    <TableCell>
-                      <span className="text-[10px] text-muted-foreground">{s.reason}</span>
-                    </TableCell>
+          ) : suggestions.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <AlertTriangle className="h-8 w-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">Com o valor atual não foi possível comprar nenhum ativo elegível.</p>
+              {minEligiblePrice > 0 && (
+                <p className="text-xs mt-2">
+                  Menor valor necessário para iniciar nesta estratégia:{' '}
+                  <span className="font-mono font-bold text-primary">{formatBRL(minEligiblePrice)}</span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto -mx-6 -mb-6">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="font-semibold">Ativo</TableHead>
+                    <TableHead className="font-semibold">Classe</TableHead>
+                    <TableHead className="font-semibold">Setor</TableHead>
+                    <TableHead className="text-center font-semibold">Score</TableHead>
+                    <TableHead className="text-right font-semibold">% Atual</TableHead>
+                    <TableHead className="text-right font-semibold">% Projetada</TableHead>
+                    <TableHead className="text-right font-semibold">Preço</TableHead>
+                    <TableHead className="text-right font-semibold">Valor</TableHead>
+                    <TableHead className="text-right font-semibold">Qtde</TableHead>
+                    <TableHead className="text-right font-semibold">Sobra</TableHead>
+                    <TableHead className="font-semibold">Motivo</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+                </TableHeader>
+                <TableBody>
+                  {suggestions.map(s => (
+                    <TableRow key={s.asset.id} className="hover:bg-muted/30">
+                      <TableCell className="font-medium">{s.asset.ticker}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{s.className}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]">{s.sector || '—'}</Badge>
+                      </TableCell>
+                      <TableCell className="text-center font-mono text-xs">{s.score}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{formatPct(s.pctCurrent)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{formatPct(s.pctProjected)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{formatBRL(s.price)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs font-bold text-primary">{formatBRL(s.suggestedAmount)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{s.suggestedQty}</TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground">{formatBRL(s.remainder)}</TableCell>
+                      <TableCell>
+                        <span className="text-[10px] text-muted-foreground">{s.reason}</span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ========== BLOCO 4: IMPACTO PROJETADO ========== */}
       {suggestions.length > 0 && (
