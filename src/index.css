@@ -4,70 +4,68 @@
 
 @layer base {
   :root {
-    /* Deep space background */
-    --background: 220 20% 4%;
-    --foreground: 220 15% 90%;
+    /* ═══ FORTUNA PREMIUM — Indigo Deep Space ═══ */
+    
+    /* Background layers */
+    --background: 222 47% 5%;
+    --foreground: 220 13% 91%;
 
-    /* Cards: subtle layered depth */
-    --card: 222 18% 7%;
-    --card-foreground: 220 15% 90%;
+    /* Cards */
+    --card: 222 41% 7%;
+    --card-foreground: 220 13% 91%;
 
     /* Elevated surfaces */
-    --popover: 222 16% 9%;
-    --popover-foreground: 220 15% 90%;
+    --popover: 222 41% 8%;
+    --popover-foreground: 220 13% 91%;
 
-    /* Gold accent — refined warm amber */
-    --primary: 42 78% 56%;
-    --primary-foreground: 220 20% 4%;
+    /* Primary — Modern Indigo */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
 
-    /* Secondary surfaces */
-    --secondary: 220 14% 11%;
-    --secondary-foreground: 220 12% 75%;
+    /* Secondary */
+    --secondary: 222 30% 10%;
+    --secondary-foreground: 220 13% 70%;
 
-    /* Muted tones */
-    --muted: 220 14% 10%;
-    --muted-foreground: 220 10% 45%;
+    /* Muted */
+    --muted: 222 30% 9%;
+    --muted-foreground: 220 9% 46%;
 
-    /* Accent highlight */
-    --accent: 220 14% 13%;
-    --accent-foreground: 220 15% 90%;
+    /* Accent */
+    --accent: 222 30% 12%;
+    --accent-foreground: 220 13% 91%;
 
-    /* Status colors */
+    /* Destructive */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
-    /* Borders — ultra subtle */
-    --border: 220 10% 12%;
-    --input: 220 10% 12%;
-    --ring: 42 78% 56%;
-    --radius: 0.625rem;
+    /* Borders */
+    --border: 222 20% 12%;
+    --input: 222 20% 12%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
 
-    /* Semantic data colors */
-    --positive: 152 60% 48%;
-    --negative: 0 72% 55%;
+    /* Semantic data */
+    --positive: 142 71% 45%;
+    --negative: 0 84% 60%;
     --warning: 38 92% 50%;
 
     /* Sidebar */
-    --sidebar-background: 220 22% 3%;
-    --sidebar-foreground: 220 10% 50%;
-    --sidebar-primary: 42 78% 56%;
-    --sidebar-primary-foreground: 220 20% 4%;
-    --sidebar-accent: 220 14% 8%;
-    --sidebar-accent-foreground: 220 15% 90%;
-    --sidebar-border: 220 10% 8%;
-    --sidebar-ring: 42 78% 56%;
+    --sidebar-background: 222 47% 4%;
+    --sidebar-foreground: 220 9% 46%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 30% 8%;
+    --sidebar-accent-foreground: 220 13% 91%;
+    --sidebar-border: 222 20% 8%;
+    --sidebar-ring: 239 84% 67%;
 
-    /* Chart palette — vibrant data viz */
-    --chart-1: 42 78% 56%;
-    --chart-2: 213 80% 62%;
-    --chart-3: 152 60% 48%;
-    --chart-4: 268 60% 62%;
-    --chart-5: 0 72% 55%;
+    /* Chart palette */
+    --chart-1: 239 84% 67%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 270 67% 62%;
+    --chart-5: 0 84% 60%;
     --chart-6: 38 92% 50%;
-
-    /* Custom premium tokens */
-    --glow-primary: 42 78% 56%;
-    --surface-elevated: 222 16% 9%;
   }
 
   * {
@@ -76,7 +74,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -84,41 +82,57 @@
 
   /* Premium scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(220 10% 18%);
-    border-radius: 3px;
+    background: hsl(222 20% 16%);
+    border-radius: 10px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(220 10% 25%);
+    background: hsl(222 20% 22%);
   }
 }
 
 @layer utilities {
+  /* Glass surface */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-lg;
   }
-  .glass-surface {
-    @apply bg-card/50 backdrop-blur-md;
+
+  /* Subtle glow */
+  .glow-primary {
+    box-shadow: 0 0 24px -8px hsl(239 84% 67% / 0.15);
   }
-  .text-gradient-gold {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-[hsl(42,78%,56%)] to-[hsl(38,90%,65%)];
-  }
-  .glow-gold {
-    box-shadow: 0 0 20px -5px hsl(42 78% 56% / 0.15);
-  }
+
+  /* KPI typography */
   .kpi-value {
-    @apply text-3xl font-bold tracking-tight font-mono;
+    @apply text-3xl font-semibold tracking-tight font-mono;
   }
   .kpi-label {
     @apply text-[11px] font-medium text-muted-foreground uppercase tracking-widest;
   }
+
+  /* Insight card */
   .insight-card {
-    @apply rounded-lg border border-border/50 bg-card/60 p-4 transition-all duration-200 hover:bg-card/80 hover:border-border;
+    @apply rounded-lg border border-border/40 bg-card/60 p-4 transition-all duration-200 hover:bg-card/90 hover:border-border/70;
+  }
+
+  /* Page section title */
+  .section-title {
+    @apply text-sm font-semibold tracking-tight text-foreground;
+  }
+
+  /* Data table row */
+  .data-row {
+    @apply border-b border-border/30 last:border-0 hover:bg-accent/40 transition-colors;
+  }
+
+  /* Stat block */
+  .stat-block {
+    @apply p-4 rounded-lg bg-muted/30 border border-border/30;
   }
 }

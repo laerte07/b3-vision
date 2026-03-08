@@ -15,6 +15,7 @@ import FundamentalsDrawer from '@/components/FundamentalsDrawer';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { usePortfolio, useAddAsset, useUpdatePosition, useDeleteAsset, useRefreshMarket, PortfolioAsset } from '@/hooks/usePortfolio';
 import { formatBRL, formatPct } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 const Portfolio = () => {
   const { data: classes = [] } = useAssetClasses();
@@ -30,30 +31,22 @@ const Portfolio = () => {
   const [form, setForm] = useState({ ticker: '', name: '', class_id: '', quantity: '', avg_price: '' });
 
   const totalPortfolio = portfolio.reduce((s, p) => s + p.quantity * (p.last_price ?? p.avg_price), 0);
-
   const classesWithPositions = classes.filter(cls => portfolio.some(p => p.class_id === cls.id));
   const defaultTab = classesWithPositions[0]?.id ?? '';
-
   const resetForm = () => setForm({ ticker: '', name: '', class_id: '', quantity: '', avg_price: '' });
 
   const handleAdd = () => {
     addAsset.mutate({
-      ticker: form.ticker,
-      name: form.name,
-      class_id: form.class_id,
-      quantity: Number(form.quantity),
-      avg_price: Number(form.avg_price),
+      ticker: form.ticker, name: form.name, class_id: form.class_id,
+      quantity: Number(form.quantity), avg_price: Number(form.avg_price),
     }, { onSuccess: () => { setAddOpen(false); resetForm(); } });
   };
 
   const handleEdit = () => {
     if (!editAsset) return;
     updatePosition.mutate({
-      asset_id: editAsset.id,
-      position_id: editAsset.position_id,
-      quantity: Number(form.quantity),
-      avg_price: Number(form.avg_price),
-      name: form.name,
+      asset_id: editAsset.id, position_id: editAsset.position_id,
+      quantity: Number(form.quantity), avg_price: Number(form.avg_price), name: form.name,
     }, { onSuccess: () => { setEditAsset(null); resetForm(); } });
   };
 
@@ -63,42 +56,41 @@ const Portfolio = () => {
   };
 
   const formatRelativeAge = (dateISO: string | null): { label: string; variant: 'ok' | 'warn' | 'muted'; fullDate: string | null } => {
-    if (!dateISO) return { label: 'Sem atualização', variant: 'muted', fullDate: null };
+    if (!dateISO) return { label: 'Sem dados', variant: 'muted', fullDate: null };
     const ms = Date.now() - new Date(dateISO).getTime();
     const mins = Math.floor(ms / 60000);
     const hours = Math.floor(mins / 60);
     const days = Math.floor(hours / 24);
     const full = new Date(dateISO).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-    if (mins < 1) return { label: 'Atualizado agora', variant: 'ok', fullDate: full };
-    if (mins <= 59) return { label: `Atualizado há ${mins} min`, variant: 'ok', fullDate: full };
-    if (hours <= 23) return { label: `Desatualizado há ${hours} h`, variant: 'warn', fullDate: full };
-    return { label: `Desatualizado há ${days} d`, variant: 'warn', fullDate: full };
+    if (mins < 1) return { label: 'Agora', variant: 'ok', fullDate: full };
+    if (mins <= 59) return { label: `${mins}min`, variant: 'ok', fullDate: full };
+    if (hours <= 23) return { label: `${hours}h`, variant: 'warn', fullDate: full };
+    return { label: `${days}d`, variant: 'warn', fullDate: full };
   };
 
   const statusBadgeClass: Record<string, string> = {
-    ok: 'border-positive/40 bg-positive/10 text-positive',
-    warn: 'border-warning/40 bg-warning/10 text-warning',
-    muted: 'border-muted-foreground/30 bg-muted/50 text-muted-foreground',
+    ok: 'border-positive/30 bg-positive/5 text-positive',
+    warn: 'border-warning/30 bg-warning/5 text-warning',
+    muted: 'border-muted-foreground/20 bg-muted/30 text-muted-foreground',
   };
 
-  if (isLoading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Carregando...</div>;
+  if (isLoading) return <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">Carregando...</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Carteira</h1>
-          <p className="text-sm text-muted-foreground">Posições por classe de ativo</p>
+          <p className="kpi-label mb-1">Posições</p>
+          <h1 className="text-xl font-semibold tracking-tight">Carteira</h1>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => refreshMarket.mutate()} disabled={refreshMarket.isPending}>
-            <RefreshCw className={`h-4 w-4 ${refreshMarket.isPending ? 'animate-spin' : ''}`} />
-            Atualizar Mercado
+          <Button variant="outline" size="sm" className="gap-2 text-xs h-8" onClick={() => refreshMarket.mutate()} disabled={refreshMarket.isPending}>
+            <RefreshCw className={cn('h-3.5 w-3.5', refreshMarket.isPending && 'animate-spin')} />
+            Atualizar
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-2" onClick={resetForm}><Plus className="h-4 w-4" /> Adicionar Ativo</Button>
+              <Button size="sm" className="gap-2 h-8 text-xs" onClick={resetForm}><Plus className="h-3.5 w-3.5" /> Novo Ativo</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Adicionar Ativo</DialogTitle></DialogHeader>
@@ -114,7 +106,7 @@ const Portfolio = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1"><Label className="text-xs">Quantidade</Label><Input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} className="font-mono" /></div>
-                  <div className="space-y-1"><Label className="text-xs">Preço Médio (R$)</Label><Input type="number" step="0.01" value={form.avg_price} onChange={e => setForm({ ...form, avg_price: e.target.value })} className="font-mono" /></div>
+                  <div className="space-y-1"><Label className="text-xs">Preço Médio</Label><Input type="number" step="0.01" value={form.avg_price} onChange={e => setForm({ ...form, avg_price: e.target.value })} className="font-mono" /></div>
                 </div>
                 <Button className="w-full" onClick={handleAdd} disabled={addAsset.isPending || !form.ticker || !form.class_id}>{addAsset.isPending ? 'Salvando...' : 'Adicionar'}</Button>
               </div>
@@ -124,8 +116,8 @@ const Portfolio = () => {
       </div>
 
       {portfolio.length === 0 ? (
-        <Card className="p-12 text-center text-muted-foreground">
-          <p>Nenhum ativo cadastrado. Clique em "Adicionar Ativo" para começar.</p>
+        <Card className="p-12 text-center text-muted-foreground text-sm">
+          Nenhum ativo cadastrado. Clique em "Novo Ativo" para começar.
         </Card>
       ) : (
         <Tabs defaultValue={defaultTab}>
@@ -133,7 +125,7 @@ const Portfolio = () => {
             {classesWithPositions.map(cls => {
               const count = portfolio.filter(p => p.class_id === cls.id).length;
               return (
-                <TabsTrigger key={cls.id} value={cls.id}>
+                <TabsTrigger key={cls.id} value={cls.id} className="text-xs">
                   {cls.name} <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">{count}</Badge>
                 </TabsTrigger>
               );
@@ -146,21 +138,21 @@ const Portfolio = () => {
 
             return (
               <TabsContent key={cls.id} value={cls.id}>
-                <Card className="overflow-hidden">
+                <div className="glass-card overflow-hidden">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-muted/50">
-                        <TableHead className="font-semibold">Ticker</TableHead>
-                        <TableHead className="font-semibold">Nome</TableHead>
-                        <TableHead className="text-right font-semibold">Qtd</TableHead>
-                        <TableHead className="text-right font-semibold">PM</TableHead>
-                        <TableHead className="text-right font-semibold">Preço Atual</TableHead>
-                        <TableHead className="text-right font-semibold">Total</TableHead>
-                        <TableHead className="text-right font-semibold">% Classe</TableHead>
-                        <TableHead className="text-right font-semibold">% Carteira</TableHead>
-                        <TableHead className="text-right font-semibold">DY</TableHead>
-                        <TableHead className="font-semibold">Status</TableHead>
-                        <TableHead className="font-semibold w-20">Ações</TableHead>
+                      <TableRow className="border-b border-border/40">
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Ticker</TableHead>
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Nome</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Qtd</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">PM</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Atual</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">% Classe</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">% Cart.</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">DY</TableHead>
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</TableHead>
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider w-20">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -173,45 +165,45 @@ const Portfolio = () => {
                         const status = formatRelativeAge(pos.price_updated_at);
 
                         return (
-                          <TableRow key={pos.id} className="hover:bg-muted/30">
-                            <TableCell className="font-mono font-semibold text-primary">{pos.ticker}</TableCell>
-                            <TableCell className="text-muted-foreground text-sm">{pos.name || '—'}</TableCell>
-                            <TableCell className="text-right font-mono">{pos.quantity}</TableCell>
-                            <TableCell className="text-right font-mono text-muted-foreground">{formatBRL(pos.avg_price)}</TableCell>
-                            <TableCell className="text-right font-mono">
+                          <TableRow key={pos.id} className="data-row">
+                            <TableCell className="font-mono font-medium text-foreground">{pos.ticker}</TableCell>
+                            <TableCell className="text-muted-foreground text-xs">{pos.name || '—'}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">{pos.quantity}</TableCell>
+                            <TableCell className="text-right font-mono text-sm text-muted-foreground">{formatBRL(pos.avg_price)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">
                               <span className={gain >= 0 ? 'text-positive' : 'text-negative'}>{formatBRL(price)}</span>
                             </TableCell>
-                            <TableCell className="text-right font-mono font-medium">{formatBRL(total)}</TableCell>
-                            <TableCell className="text-right font-mono">{formatPct(pctClass)}</TableCell>
-                            <TableCell className="text-right font-mono">{formatPct(pctPortfolio)}</TableCell>
-                            <TableCell className="text-right font-mono">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
+                            <TableCell className="text-right font-mono text-sm font-medium">{formatBRL(total)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatPct(pctClass)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{formatPct(pctPortfolio)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
                             <TableCell>
                               <TooltipProvider delayDuration={200}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className={`text-[10px] whitespace-nowrap ${statusBadgeClass[status.variant]}`}>{status.label}</Badge>
+                                    <Badge variant="outline" className={cn('text-[10px] whitespace-nowrap', statusBadgeClass[status.variant])}>{status.label}</Badge>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" className="text-xs">
                                     {status.fullDate ? (
                                       <div className="space-y-0.5">
-                                        <div>Última atualização: {status.fullDate}</div>
+                                        <div>Última: {status.fullDate}</div>
                                         {pos.price_source && <div>Fonte: {pos.price_source}</div>}
                                       </div>
-                                    ) : 'Nenhuma atualização registrada'}
+                                    ) : 'Sem dados'}
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
                             </TableCell>
                             <TableCell>
-                              <div className="flex gap-1">
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(pos)}><Pencil className="h-3.5 w-3.5" /></Button>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setFundAsset(pos)}><BarChart3 className="h-3.5 w-3.5" /></Button>
+                              <div className="flex gap-0.5">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => openEdit(pos)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setFundAsset(pos)}><BarChart3 className="h-3.5 w-3.5" /></Button>
                                 <AlertDialog>
-                                  <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
+                                  <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
                                   <AlertDialogContent>
                                     <AlertDialogHeader>
                                       <AlertDialogTitle>Excluir {pos.ticker}?</AlertDialogTitle>
-                                      <AlertDialogDescription>Esta ação é irreversível. O ativo e sua posição serão removidos.</AlertDialogDescription>
+                                      <AlertDialogDescription>Esta ação é irreversível.</AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                       <AlertDialogCancel>Cancelar</AlertDialogCancel>
@@ -224,23 +216,22 @@ const Portfolio = () => {
                           </TableRow>
                         );
                       })}
-                      <TableRow className="bg-muted/30 font-semibold">
-                        <TableCell colSpan={5}>TOTAL</TableCell>
-                        <TableCell className="text-right font-mono">{formatBRL(classTotal)}</TableCell>
-                        <TableCell className="text-right font-mono">100%</TableCell>
-                        <TableCell className="text-right font-mono">{totalPortfolio > 0 ? formatPct((classTotal / totalPortfolio) * 100) : '—'}</TableCell>
+                      <TableRow className="bg-muted/20 font-medium">
+                        <TableCell colSpan={5} className="text-xs text-muted-foreground uppercase tracking-wider">Total</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{formatBRL(classTotal)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">100%</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{totalPortfolio > 0 ? formatPct((classTotal / totalPortfolio) * 100) : '—'}</TableCell>
                         <TableCell colSpan={3} />
                       </TableRow>
                     </TableBody>
                   </Table>
-                </Card>
+                </div>
               </TabsContent>
             );
           })}
         </Tabs>
       )}
 
-      {/* Edit dialog */}
       <Dialog open={!!editAsset} onOpenChange={open => { if (!open) setEditAsset(null); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar {editAsset?.ticker}</DialogTitle></DialogHeader>
@@ -248,7 +239,7 @@ const Portfolio = () => {
             <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1"><Label className="text-xs">Quantidade</Label><Input type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} className="font-mono" /></div>
-              <div className="space-y-1"><Label className="text-xs">Preço Médio (R$)</Label><Input type="number" step="0.01" value={form.avg_price} onChange={e => setForm({ ...form, avg_price: e.target.value })} className="font-mono" /></div>
+              <div className="space-y-1"><Label className="text-xs">Preço Médio</Label><Input type="number" step="0.01" value={form.avg_price} onChange={e => setForm({ ...form, avg_price: e.target.value })} className="font-mono" /></div>
             </div>
             <Button className="w-full" onClick={handleEdit} disabled={updatePosition.isPending}>{updatePosition.isPending ? 'Salvando...' : 'Salvar'}</Button>
           </div>

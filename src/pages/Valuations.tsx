@@ -458,10 +458,10 @@ const EVEbitda = () => {
 
 // --- MAIN PAGE ---
 const Valuations = () => (
-  <div className="space-y-6">
+  <div className="space-y-6 animate-fade-in">
     <div>
-      <h1 className="text-2xl font-bold tracking-tight">Valuations</h1>
-      <p className="text-sm text-muted-foreground">Análise de valor intrínseco — somente Ações</p>
+      <p className="kpi-label mb-1">Valor Intrínseco</p>
+      <h1 className="text-xl font-semibold tracking-tight">Valuations</h1>
     </div>
     <Tabs defaultValue="graham">
       <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">

@@ -626,14 +626,12 @@ const Contributions = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Wallet className="h-6 w-6 text-primary" /> Aportes
-          </h1>
-          <p className="text-sm text-muted-foreground">Planeje, simule e registre seus aportes mensais</p>
+          <p className="kpi-label mb-1">Planejamento</p>
+          <h1 className="text-xl font-semibold tracking-tight">Aportes</h1>
         </div>
         <div className="flex gap-2">
           <Button size="sm" className="gap-1.5" onClick={() => { setShowLaunchModal(true); }}>

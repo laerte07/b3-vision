@@ -656,10 +656,11 @@ const Rentabilidade = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Rentabilidade</h1>
-        <p className="text-sm text-muted-foreground">Compare a performance da sua carteira com benchmarks do mercado</p>
+        <p className="kpi-label mb-1">Performance</p>
+        <h1 className="text-xl font-semibold tracking-tight">Rentabilidade</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Compare a performance da sua carteira com benchmarks</p>
       </div>
 
       {/* Mode + Period + Series controls */}
