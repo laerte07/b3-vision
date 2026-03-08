@@ -32,12 +32,20 @@ export function useBenchmarkHistory(
       const startStr = startDate.toISOString().slice(0, 10);
 
       // Type assertion needed because benchmark_history isn't in auto-generated types yet
-      const { data, error } = await (supabase as any)
-        .from('benchmark_history')
-        .select('benchmark_code, date, value')
-        .in('benchmark_code', benchmarkCodes)
-        .gte('date', startStr)
-        .order('date', { ascending: true });
+      // Fetch each benchmark separately to avoid the 1000-row default limit
+      const allData: BenchmarkPoint[] = [];
+      for (const code of benchmarkCodes) {
+        const { data: rows, error: err } = await (supabase as any)
+          .from('benchmark_history')
+          .select('benchmark_code, date, value')
+          .eq('benchmark_code', code)
+          .gte('date', startStr)
+          .order('date', { ascending: true })
+          .limit(2000);
+        if (err) throw err;
+        if (rows) allData.push(...rows);
+      }
+      const data = allData;
 
       if (error) throw error;
 
