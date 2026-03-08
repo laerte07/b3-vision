@@ -391,27 +391,6 @@ const Rentabilidade = () => {
 
     if (mode === 'real') {
       carteiraPoints = computeRealReturn(transactions, portfolio, period, periodMonths);
-      // Trim to period
-      if (period !== 'all' && carteiraPoints.length > 0) {
-        const cutoff = new Date();
-        if (period === 'mtd') {
-          cutoff.setDate(1);
-          cutoff.setHours(0, 0, 0, 0);
-        } else {
-          cutoff.setMonth(cutoff.getMonth() - periodMonths);
-        }
-        const filtered = carteiraPoints.filter(p => p.date >= cutoff);
-        if (filtered.length > 0) {
-          // Rebase to 0%
-          const baseReturn = filtered[0].cumulativeReturn;
-          carteiraPoints = filtered.map(p => ({
-            ...p,
-            cumulativeReturn: baseReturn !== 0
-              ? ((1 + p.cumulativeReturn / 100) / (1 + baseReturn / 100) - 1) * 100
-              : p.cumulativeReturn - baseReturn,
-          }));
-        }
-      }
     } else {
       carteiraPoints = computeSimulation(portfolio, period, periodMonths, transactions);
     }
