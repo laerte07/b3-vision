@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Scale, Calculator, GitBranch, FileText, Settings, LogOut, TrendingUp, Brain, Wallet } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Scale, Calculator, GitBranch, FileText, Settings, LogOut, TrendingUp, Brain, Wallet, LineChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -8,6 +8,7 @@ const navItems = [
   { path: '/portfolio', label: 'Carteira', icon: Briefcase },
   { path: '/rebalancing', label: 'Rebalanceamento', icon: Scale },
   { path: '/contributions', label: 'Aportes', icon: Wallet },
+  { path: '/rentabilidade', label: 'Rentabilidade', icon: LineChart },
   { path: '/valuations', label: 'Valuations', icon: Calculator },
   { path: '/score', label: 'Score Interno', icon: Brain },
   { path: '/correlation', label: 'Correlação', icon: GitBranch },
