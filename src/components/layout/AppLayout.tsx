@@ -11,7 +11,7 @@ const MainContent = () => {
       className={
         isMobile
           ? 'w-full min-h-screen px-4 py-4 pt-14'
-          : `min-h-screen p-6 lg:p-8 max-w-[1440px] transition-all duration-300 ${collapsed ? 'ml-[60px]' : 'ml-56'}`
+          : `min-h-screen p-6 lg:p-8 2xl:px-12 transition-all duration-300 ${collapsed ? 'ml-[60px]' : 'ml-56'}`
       }
     >
       <Outlet />
