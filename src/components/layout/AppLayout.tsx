@@ -8,10 +8,11 @@ const MainContent = () => {
 
   return (
     <main
+      style={!isMobile ? { marginLeft: collapsed ? 60 : 224 } : undefined}
       className={
         isMobile
           ? 'w-full min-h-screen px-4 py-4 pt-14'
-          : `min-h-screen p-6 lg:p-8 2xl:px-12 transition-all duration-300 ${collapsed ? 'ml-[60px]' : 'ml-56'}`
+          : 'flex-1 min-h-screen py-6 px-6 lg:px-8 2xl:px-12 transition-[margin] duration-300 ease-in-out'
       }
     >
       <Outlet />
