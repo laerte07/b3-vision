@@ -86,6 +86,7 @@ const Contributions = () => {
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
   const [classAmounts, setClassAmounts] = useState<Record<string, number>>({});
   const [noteText, setNoteText] = useState('');
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [editNoteId, setEditNoteId] = useState<string | null>(null);
   const [editNoteText, setEditNoteText] = useState('');
