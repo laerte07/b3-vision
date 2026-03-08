@@ -6,11 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DollarSign, TrendingUp, PieChart as PieIcon, CheckCircle, Trash2, Copy,
-  Edit3, Download, ArrowRight, AlertTriangle, Wallet, BarChart3,
+  Edit3, Download, ArrowRight, AlertTriangle, Wallet, BarChart3, ClipboardList,
 } from 'lucide-react';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
@@ -18,6 +18,7 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
 import { formatBRL, formatPct } from '@/lib/format';
 import { parseMoney } from '@/lib/parse-money';
+import { ContributionLaunchModal, LaunchItem } from '@/components/ContributionLaunchModal';
 
 // ============================================================
 // ALLOCATION MODES
