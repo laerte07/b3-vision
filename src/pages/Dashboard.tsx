@@ -188,6 +188,12 @@ const Dashboard = () => {
     { label: 'Risco Concentração', value: concentrationRisk.length > 0 ? `${concentrationRisk.length} ativo(s)` : 'OK' },
   ];
 
+  const contribCards = [
+    { label: 'Aporte do mês', value: formatBRL(monthContribTotal) },
+    { label: 'Aporte no ano', value: formatBRL(yearContribTotal) },
+    { label: 'Média mensal', value: formatBRL(avgMonthlyContrib) },
+  ];
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Carregando...</div>;
   }
