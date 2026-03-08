@@ -488,7 +488,7 @@ const Contributions = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label>Valor do aporte (R$)</Label>
-              <Input type="number" value={aporteValue} onChange={e => setAporteValue(Number(e.target.value))} className="font-mono" />
+              <Input type="number" min={0} value={aporteValue || ''} onChange={e => setAporteValue(Number(e.target.value) || 0)} className="font-mono" placeholder="0" />
             </div>
             <div className="space-y-2">
               <Label>Data do aporte</Label>
