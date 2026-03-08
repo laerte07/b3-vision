@@ -47,7 +47,7 @@ export function useBenchmarkHistory(
       }
       const data = allData;
 
-      if (error) throw error;
+      // data is already assembled above
 
       if (import.meta.env.DEV) {
         const grouped: Record<string, number> = {};
