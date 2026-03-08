@@ -42,8 +42,9 @@ const PRESETS: { label: string; icon: React.ReactNode; keys: SeriesKey[] }[] = [
   { label: 'Internacional', icon: <Globe className="h-3 w-3" />, keys: ['carteira', 'ivvb11'] },
 ];
 
-type PeriodKey = '6m' | '12m' | '24m' | '60m' | 'all';
+type PeriodKey = 'mtd' | '6m' | '12m' | '24m' | '60m' | 'all';
 const PERIODS: { key: PeriodKey; label: string; months: number }[] = [
+  { key: 'mtd', label: 'Mês atual', months: -1 }, // -1 = month-to-date
   { key: '6m', label: '6 meses', months: 6 },
   { key: '12m', label: '12 meses', months: 12 },
   { key: '24m', label: '2 anos', months: 24 },
