@@ -431,7 +431,7 @@ function buildUnifiedData(
   if (mode === 'real') {
     carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, effectiveEndStr);
   } else {
-    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr);
+    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr, effectiveEndStr, benchmarkRawData);
   }
 
   const hasCarteiraData = carteiraFinal !== null;
