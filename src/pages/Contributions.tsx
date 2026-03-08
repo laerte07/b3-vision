@@ -507,30 +507,43 @@ const Contributions = () => {
   }, [portfolio, suggestions, classes, totalPortfolio, totalSuggested]);
 
   // ============================================================
-  // CONFIRM
+  // CONFIRM via Launch Modal
   // ============================================================
-  const handleConfirm = () => {
-    const items = suggestions
-      .filter(s => s.suggestedQty > 0)
-      .map(s => ({
-        asset_id: s.asset.id,
-        amount: s.suggestedAmount,
-        quantity: s.suggestedQty,
-        unit_price: s.price,
-      }));
+  const handleLaunchConfirm = (launchItems: LaunchItem[], note: string, date: string) => {
+    const buyItems = launchItems.filter(i => i.type === 'compra' && i.quantity > 0 && i.price > 0);
+    // For now, handle buys through the existing confirm mutation
+    // Sell items handled separately below
+    const items = buyItems.map(i => ({
+      asset_id: i.asset_id,
+      amount: i.price * i.quantity,
+      quantity: i.quantity,
+      unit_price: i.price,
+    }));
 
+    const totalAmt = items.reduce((s, i) => s + i.amount, 0);
     if (items.length === 0) return;
 
     confirmContribution.mutate({
-      contribution_date: aporteDate,
-      total_amount: totalSuggested,
+      contribution_date: date,
+      total_amount: totalAmt,
       allocation_mode: mode,
-      note: noteText || undefined,
+      note: note || undefined,
       items,
     });
-    setShowConfirmDialog(false);
+    setShowLaunchModal(false);
     setNoteText('');
   };
+
+  // Prefill items for launch modal from suggestions
+  const prefillItems = useMemo(() => {
+    return suggestions
+      .filter(s => s.suggestedQty > 0)
+      .map(s => ({
+        asset: s.asset,
+        qty: s.suggestedQty,
+        price: s.price,
+      }));
+  }, [suggestions]);
 
   // ============================================================
   // CSV EXPORT
