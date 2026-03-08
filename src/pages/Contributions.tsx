@@ -16,6 +16,8 @@ import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { formatBRL, formatPct } from '@/lib/format';
 import { parseMoney } from '@/lib/parse-money';
 import { ContributionLaunchModal, LaunchItem } from '@/components/ContributionLaunchModal';
