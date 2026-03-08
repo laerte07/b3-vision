@@ -173,6 +173,8 @@ function computeSimulationReturn(
   portfolio: PortfolioAsset[],
   transactions: Transaction[],
   periodStartStr: string,
+  periodEndStr: string,
+  benchmarkRawData: BenchmarkPoint[],
 ): number | null {
   const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
   const totalValue = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
@@ -180,34 +182,90 @@ function computeSimulationReturn(
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
 
-  if (import.meta.env.DEV) console.group('[Simulação] Cálculo');
+  if (import.meta.env.DEV) {
+    console.group('[Simulação Carteira] Cálculo detalhado');
+    console.log('periodStart:', periodStartStr);
+    console.log('periodEnd:', periodEndStr);
+    console.log('assetsCount:', activeAssets.length);
+    console.log('totalPortfolioValue:', totalValue.toFixed(2));
+  }
 
   let portfolioReturn = 0;
+  let totalWeight = 0;
+  const assetDetails: { ticker: string; weight: number; startPrice: number; startDateUsed: string; endPrice: number; endDateUsed: string; returnPct: number; contributionPct: number; startSource: string }[] = [];
 
   for (const asset of activeAssets) {
     const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
+    totalWeight += weight;
     const currentPrice = asset.last_price!;
 
-    // Find start price: last transaction price on or before periodStart
+    // Find start price: best available price near period start
+    // Priority: last transaction price on or before periodStart, then first transaction after
     let startPrice: number | null = null;
-    for (const t of sorted) {
-      if (t.asset_id !== asset.id) continue;
-      if (t.date <= periodStartStr) startPrice = t.price;
-      else break;
+    let startDateUsed = periodStartStr;
+    let startSource = '';
+
+    // Look through transactions for this asset
+    const assetTxs = sorted.filter(t => t.asset_id === asset.id);
+
+    // Last transaction on or before period start
+    for (const t of assetTxs) {
+      if (t.date <= periodStartStr) {
+        startPrice = t.price;
+        startDateUsed = t.date;
+        startSource = 'tx_before';
+      } else break;
     }
-    if (!startPrice) startPrice = asset.avg_price;
+
+    // If no transaction before, use first transaction after period start
+    if (startPrice === null) {
+      const firstAfter = assetTxs.find(t => t.date > periodStartStr);
+      if (firstAfter) {
+        startPrice = firstAfter.price;
+        startDateUsed = firstAfter.date;
+        startSource = 'tx_after';
+      }
+    }
+
+    // Fallback to avg_price
+    if (!startPrice || startPrice <= 0) {
+      startPrice = asset.avg_price;
+      startDateUsed = 'avg_price';
+      startSource = 'avg_price';
+    }
+
     if (startPrice <= 0) continue;
 
     const ret = (currentPrice / startPrice) - 1;
-    portfolioReturn += weight * ret;
+    const contribution = weight * ret;
+    portfolioReturn += contribution;
 
-    if (import.meta.env.DEV) {
-      console.log(`  ${asset.ticker}: peso=${(weight * 100).toFixed(1)}%, início=${startPrice.toFixed(2)}, atual=${currentPrice.toFixed(2)}, ret=${(ret * 100).toFixed(2)}%`);
-    }
+    assetDetails.push({
+      ticker: asset.ticker,
+      weight: weight * 100,
+      startPrice,
+      startDateUsed,
+      endPrice: currentPrice,
+      endDateUsed: periodEndStr,
+      returnPct: ret * 100,
+      contributionPct: contribution * 100,
+      startSource,
+    });
   }
 
   if (import.meta.env.DEV) {
-    console.log(`Retorno simulado: ${(portfolioReturn * 100).toFixed(4)}%`);
+    console.log('totalWeight:', (totalWeight * 100).toFixed(2) + '%');
+    console.table(assetDetails.map(a => ({
+      ticker: a.ticker,
+      'peso%': a.weight.toFixed(2),
+      'preçoInício': a.startPrice.toFixed(2),
+      'dataInício': a.startDateUsed,
+      'fonte': a.startSource,
+      'preçoFim': a.endPrice.toFixed(2),
+      'retorno%': a.returnPct.toFixed(2),
+      'contribuição%': a.contributionPct.toFixed(2),
+    })));
+    console.log(`Retorno simulado final: ${(portfolioReturn * 100).toFixed(4)}%`);
     console.groupEnd();
   }
 
@@ -373,7 +431,7 @@ function buildUnifiedData(
   if (mode === 'real') {
     carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, effectiveEndStr);
   } else {
-    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr);
+    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr, effectiveEndStr, benchmarkRawData);
   }
 
   const hasCarteiraData = carteiraFinal !== null;

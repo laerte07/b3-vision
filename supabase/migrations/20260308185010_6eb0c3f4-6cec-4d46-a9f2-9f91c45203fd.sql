@@ -1,0 +1,1 @@
+DELETE FROM benchmark_history WHERE benchmark_code = 'CDI';
