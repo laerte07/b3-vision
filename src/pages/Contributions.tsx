@@ -605,6 +605,9 @@ const Contributions = () => {
           <p className="text-sm text-muted-foreground">Planeje, simule e registre seus aportes mensais</p>
         </div>
         <div className="flex gap-2">
+          <Button size="sm" className="gap-1.5" onClick={() => { setShowLaunchModal(true); }}>
+            <ClipboardList className="h-3.5 w-3.5" /> Novo Lançamento
+          </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={duplicateLast} disabled={contributions.length === 0}>
             <Copy className="h-3.5 w-3.5" /> Repetir último
           </Button>
