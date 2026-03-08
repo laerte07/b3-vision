@@ -390,7 +390,7 @@ const Rentabilidade = () => {
     let carteiraPoints: MonthlyPoint[] = [];
 
     if (mode === 'real') {
-      carteiraPoints = computeRealTWR(transactions, portfolio);
+      carteiraPoints = computeRealReturn(transactions, portfolio, period, periodMonths);
       // Trim to period
       if (period !== 'all' && carteiraPoints.length > 0) {
         const cutoff = new Date();
@@ -413,7 +413,7 @@ const Rentabilidade = () => {
         }
       }
     } else {
-      carteiraPoints = computeSimulation(portfolio, periodMonths);
+      carteiraPoints = computeSimulation(portfolio, period, periodMonths, transactions);
     }
 
     // 2. Benchmark series
