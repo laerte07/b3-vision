@@ -72,6 +72,7 @@ function getAssetScore(asset: PortfolioAsset): number {
 // MAIN COMPONENT
 // ============================================================
 const Contributions = () => {
+  const { user } = useAuth();
   const { data: portfolio = [], isLoading: loadingPortfolio } = usePortfolio();
   const { data: classes = [] } = useAssetClasses();
   const { data: targets = [] } = useClassTargets();
