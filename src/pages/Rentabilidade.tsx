@@ -110,136 +110,180 @@ function generateBenchmarkSeries(months: number): { date: Date; values: Record<E
   return data as any;
 }
 
-// ─── TWR (Time-Weighted Return) calculation ─────────────────
-// Uses Modified Dietz within each month, then chains months.
-// We reconstruct portfolio value at each month-end from transaction history.
+// ─── Helper: get start-of-period date ───────────────────────
+function getPeriodStartDate(period: PeriodKey, periodMonths: number, transactions: Transaction[]): Date {
+  const now = new Date();
+  if (period === 'mtd') {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  if (period === 'all' && transactions.length > 0) {
+    return new Date(transactions[0].date);
+  }
+  const d = new Date();
+  d.setMonth(d.getMonth() - periodMonths);
+  return d;
+}
+
+// ─── Helper: find price for an asset at a given date ────────
+// Uses the most recent transaction price on or before the date.
+// Falls back to avg_price from positions.
+function findStartPrice(
+  assetId: string,
+  periodStart: Date,
+  transactions: Transaction[],
+  avgPriceMap: Record<string, number>,
+): number | null {
+  const dateStr = periodStart.toISOString().slice(0, 10);
+  // Find the last transaction for this asset on or before periodStart
+  let best: Transaction | null = null;
+  for (const t of transactions) {
+    if (t.asset_id !== assetId) continue;
+    if (t.date <= dateStr) {
+      if (!best || t.date > best.date) best = t;
+    }
+  }
+  if (best) return best.price;
+  // If no transaction before period start, use avg_price
+  if (avgPriceMap[assetId]) return avgPriceMap[assetId];
+  return null;
+}
+
+// ─── Real mode: weighted return from actual positions ───────
 interface MonthlyPoint { date: Date; cumulativeReturn: number }
 
-function computeRealTWR(
+function computeRealReturn(
   transactions: Transaction[],
   portfolio: PortfolioAsset[],
+  period: PeriodKey,
+  periodMonths: number,
 ): MonthlyPoint[] {
-  if (transactions.length === 0) return [];
+  if (portfolio.length === 0) return [];
 
-  // Build a map of asset_id → current price (best we have)
-  const currentPriceMap: Record<string, number> = {};
-  portfolio.forEach(a => {
-    if (a.last_price != null) currentPriceMap[a.id] = a.last_price;
-  });
-
-  // Sort transactions by date
-  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-  const firstDate = new Date(sorted[0].date);
+  const periodStart = getPeriodStartDate(period, periodMonths, transactions);
   const now = new Date();
 
-  // Build positions over time: at each transaction, update holdings
-  // holdings: asset_id → { qty, totalCost }
-  const holdings: Record<string, { qty: number; avgPrice: number }> = {};
+  // Build avg_price map from portfolio positions
+  const avgPriceMap: Record<string, number> = {};
+  portfolio.forEach(a => { avgPriceMap[a.id] = a.avg_price; });
 
-  // Group transactions by month
-  const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  // Reconstruct positions at period start using transactions
+  // Start from zero and replay all transactions up to period start
+  const positionsAtStart: Record<string, { qty: number; avgPrice: number }> = {};
+  const periodStartStr = periodStart.toISOString().slice(0, 10);
 
-  // Build all months from first transaction to now
-  const months: string[] = [];
-  const cur = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
-  while (cur <= now) {
-    months.push(monthKey(cur));
-    cur.setMonth(cur.getMonth() + 1);
-  }
-
-  // Index transactions by month
-  const txByMonth: Record<string, Transaction[]> = {};
-  sorted.forEach(t => {
-    const mk = monthKey(new Date(t.date));
-    if (!txByMonth[mk]) txByMonth[mk] = [];
-    txByMonth[mk].push(t);
-  });
-
-  // For estimating asset price at a given month:
-  // We use transaction prices as snapshots. Between transactions, we use last known tx price.
-  // At the end, we use current price from portfolio.
-  const lastKnownPrice: Record<string, number> = {};
-
-  // Calculate portfolio value using last known prices
-  const portfolioValue = (): number => {
-    let total = 0;
-    for (const [assetId, h] of Object.entries(holdings)) {
-      if (h.qty <= 0) continue;
-      const price = lastKnownPrice[assetId] ?? currentPriceMap[assetId] ?? h.avgPrice;
-      total += h.qty * price;
-    }
-    return total;
-  };
-
-  const points: MonthlyPoint[] = [];
-  let cumulativeReturn = 0; // in percent
-  let prevValue = 0;
-
-  if (import.meta.env.DEV) {
-    console.group('[Rentabilidade Real] TWR Debug');
-    console.log('Total transactions:', sorted.length);
-    console.log('Period:', months[0], '→', months[months.length - 1]);
-  }
-
-  for (let mi = 0; mi < months.length; mi++) {
-    const mk = months[mi];
-    const monthTxs = txByMonth[mk] ?? [];
-
-    // Process transactions for this month
-    let cashFlowIn = 0;
-    for (const tx of monthTxs) {
-      lastKnownPrice[tx.asset_id] = tx.price;
-
-      if (!holdings[tx.asset_id]) holdings[tx.asset_id] = { qty: 0, avgPrice: 0 };
-      const h = holdings[tx.asset_id];
-
-      if (tx.type === 'compra' || tx.type === 'buy') {
-        const newQty = h.qty + tx.quantity;
-        h.avgPrice = newQty > 0 ? ((h.qty * h.avgPrice) + (tx.quantity * tx.price)) / newQty : tx.price;
-        h.qty = newQty;
-        cashFlowIn += tx.quantity * tx.price + tx.fees;
-      } else {
-        // venda/sell
-        h.qty = Math.max(0, h.qty - tx.quantity);
-        cashFlowIn -= tx.quantity * tx.price - tx.fees;
-      }
-    }
-
-    // Use current price for the last month
-    const isLastMonth = mi === months.length - 1;
-    if (isLastMonth) {
-      for (const assetId of Object.keys(holdings)) {
-        if (currentPriceMap[assetId]) lastKnownPrice[assetId] = currentPriceMap[assetId];
-      }
-    }
-
-    const endValue = portfolioValue();
-
-    if (mi === 0) {
-      // First month: just record starting state
-      prevValue = endValue;
-      const [y, m] = mk.split('-').map(Number);
-      points.push({ date: new Date(y, m - 1, 1), cumulativeReturn: 0 });
+  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+  for (const tx of sorted) {
+    if (tx.date > periodStartStr) break;
+    if (!positionsAtStart[tx.asset_id]) positionsAtStart[tx.asset_id] = { qty: 0, avgPrice: 0 };
+    const pos = positionsAtStart[tx.asset_id];
+    if (tx.type === 'compra' || tx.type === 'buy') {
+      const newQty = pos.qty + tx.quantity;
+      pos.avgPrice = newQty > 0 ? ((pos.qty * pos.avgPrice) + (tx.quantity * tx.price)) / newQty : tx.price;
+      pos.qty = newQty;
     } else {
-      // Modified Dietz for this month
-      const adjustedStart = prevValue + cashFlowIn;
-      if (adjustedStart > 0) {
-        const periodReturn = (endValue - adjustedStart) / adjustedStart;
-        cumulativeReturn = (1 + cumulativeReturn / 100) * (1 + periodReturn) * 100 - 100;
-      }
-      const [y, m] = mk.split('-').map(Number);
-      points.push({ date: new Date(y, m - 1, 1), cumulativeReturn });
-      prevValue = endValue;
-    }
-
-    if (import.meta.env.DEV && monthTxs.length > 0) {
-      console.log(`  ${mk}: ${monthTxs.length} tx, value=${endValue.toFixed(2)}, cumRet=${cumulativeReturn.toFixed(2)}%`);
+      pos.qty = Math.max(0, pos.qty - tx.quantity);
     }
   }
 
+  // For assets with current positions but no transactions before period start,
+  // use current positions (they were bought during the period)
+  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
+  
   if (import.meta.env.DEV) {
-    console.log('Final cumulative return:', cumulativeReturn.toFixed(2) + '%');
+    console.group('[Rentabilidade Real] Cálculo de Retorno');
+    console.log('Período:', periodStart.toISOString().slice(0, 10), '→', now.toISOString().slice(0, 10));
+  }
+
+  // Calculate weighted return
+  // For each asset: return = (current_price / start_price) - 1
+  // Portfolio return = sum(weight_i * return_i)
+  // Weight = value at start / total portfolio value at start
+  let totalStartValue = 0;
+  const assetData: { ticker: string; startPrice: number; currentPrice: number; qty: number; startValue: number; ret: number }[] = [];
+
+  for (const asset of activeAssets) {
+    const currentPrice = asset.last_price!;
+    const posAtStart = positionsAtStart[asset.id];
+    
+    // Determine qty at period start
+    let qtyAtStart = posAtStart?.qty ?? 0;
+    
+    // Find start price
+    const startPrice = findStartPrice(asset.id, periodStart, sorted, avgPriceMap);
+    
+    if (!startPrice || startPrice <= 0) continue;
+    
+    // If asset had no position at period start, it was bought during the period
+    // For simplicity, we include it with its purchase price as start price
+    if (qtyAtStart <= 0) {
+      // Use current qty and avg_price as start price (bought during period)
+      qtyAtStart = asset.quantity;
+    }
+
+    const startValue = qtyAtStart * startPrice;
+    const ret = (currentPrice / startPrice) - 1;
+    totalStartValue += startValue;
+
+    assetData.push({
+      ticker: asset.ticker,
+      startPrice,
+      currentPrice,
+      qty: qtyAtStart,
+      startValue,
+      ret,
+    });
+  }
+
+  if (totalStartValue <= 0) {
+    if (import.meta.env.DEV) {
+      console.log('Portfolio value at period start = 0, no return to calculate');
+      console.groupEnd();
+    }
+    return [];
+  }
+
+  // Calculate weighted portfolio return
+  let portfolioReturn = 0;
+  for (const ad of assetData) {
+    const weight = ad.startValue / totalStartValue;
+    portfolioReturn += weight * ad.ret;
+
+    if (import.meta.env.DEV) {
+      console.log(`  ${ad.ticker}: preço_início=${ad.startPrice.toFixed(2)}, preço_atual=${ad.currentPrice.toFixed(2)}, ret=${(ad.ret * 100).toFixed(2)}%, peso=${(weight * 100).toFixed(1)}%, contrib=${(weight * ad.ret * 100).toFixed(2)}%`);
+    }
+  }
+
+  const portfolioReturnPct = portfolioReturn * 100;
+
+  if (import.meta.env.DEV) {
+    console.log(`Retorno total da carteira: ${portfolioReturnPct.toFixed(2)}%`);
     console.groupEnd();
+  }
+
+  // Build chart points: start at 0%, end at portfolioReturnPct
+  // For intermediate points, build monthly snapshots
+  const points: MonthlyPoint[] = [];
+  const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  
+  // Generate monthly points from period start to now
+  const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
+  const totalMonths = (now.getFullYear() - cur.getFullYear()) * 12 + (now.getMonth() - cur.getMonth());
+  
+  // Start point
+  points.push({ date: new Date(cur), cumulativeReturn: 0 });
+
+  if (totalMonths <= 1) {
+    // Short period: just start and end
+    points.push({ date: new Date(now.getFullYear(), now.getMonth(), now.getDate()), cumulativeReturn: portfolioReturnPct });
+  } else {
+    // Intermediate months: linear interpolation (we don't have daily prices)
+    for (let i = 1; i <= totalMonths; i++) {
+      const d = new Date(cur.getFullYear(), cur.getMonth() + i, 1);
+      const fraction = i / totalMonths;
+      // Compound interpolation: (1 + total)^fraction - 1
+      const interpReturn = (Math.pow(1 + portfolioReturn, fraction) - 1) * 100;
+      points.push({ date: d, cumulativeReturn: interpReturn });
+    }
   }
 
   return points;
@@ -248,54 +292,66 @@ function computeRealTWR(
 // ─── Simulation: current weights applied retroactively ──────
 function computeSimulation(
   portfolio: PortfolioAsset[],
-  months: number,
+  period: PeriodKey,
+  periodMonths: number,
+  transactions: Transaction[],
 ): MonthlyPoint[] {
-  // Calculate current weights
-  const totalValue = portfolio.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
+  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
+  const totalValue = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
   if (totalValue <= 0) return [];
 
-  const weights = portfolio
-    .filter(a => a.quantity > 0)
-    .map(a => ({
-      ticker: a.ticker,
-      weight: (a.quantity * (a.last_price ?? a.avg_price)) / totalValue,
-    }));
+  const periodStart = getPeriodStartDate(period, periodMonths, transactions);
+  const avgPriceMap: Record<string, number> = {};
+  portfolio.forEach(a => { avgPriceMap[a.id] = a.avg_price; });
+
+  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
 
   if (import.meta.env.DEV) {
     console.group('[Rentabilidade Simulação] Debug');
-    console.log('Weights:', weights.map(w => `${w.ticker}: ${(w.weight * 100).toFixed(1)}%`));
-    console.log('Period months:', months);
+    console.log('Período:', periodStart.toISOString().slice(0, 10));
   }
 
-  // Simulate: we use a simple model where portfolio return is a weighted sum
-  // of individual asset returns. Since we don't have historical prices for each asset,
-  // we approximate using a diversified equity-like return profile.
-  let seed = 137;
-  const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-  const randNorm = () => { const u1 = rand(); const u2 = rand(); return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); };
+  // For simulation: use current weights, calculate return based on prices
+  let portfolioReturn = 0;
 
-  // Approximate monthly return based on portfolio composition
-  const avgMonthlyReturn = 0.012; // ~15% annualized for diversified BR portfolio
-  const avgVol = 0.025;
+  for (const asset of activeAssets) {
+    const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
+    const currentPrice = asset.last_price!;
+    const startPrice = findStartPrice(asset.id, periodStart, sorted, avgPriceMap) ?? asset.avg_price;
+    
+    if (startPrice <= 0) continue;
+    const ret = (currentPrice / startPrice) - 1;
+    portfolioReturn += weight * ret;
 
-  const now = new Date();
-  const points: MonthlyPoint[] = [];
-  let cumulative = 0;
-
-  for (let i = months; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    if (i === months) {
-      points.push({ date: d, cumulativeReturn: 0 });
-      continue;
+    if (import.meta.env.DEV) {
+      console.log(`  ${asset.ticker}: peso=${(weight * 100).toFixed(1)}%, preço_início=${startPrice.toFixed(2)}, preço_atual=${currentPrice.toFixed(2)}, ret=${(ret * 100).toFixed(2)}%`);
     }
-    const monthReturn = avgMonthlyReturn + avgVol * randNorm();
-    cumulative = (1 + cumulative / 100) * (1 + monthReturn) * 100 - 100;
-    points.push({ date: d, cumulativeReturn: cumulative });
   }
+
+  const portfolioReturnPct = portfolioReturn * 100;
 
   if (import.meta.env.DEV) {
-    console.log('Simulated final return:', cumulative.toFixed(2) + '%');
+    console.log(`Retorno simulado: ${portfolioReturnPct.toFixed(2)}%`);
     console.groupEnd();
+  }
+
+  // Build chart points
+  const now = new Date();
+  const points: MonthlyPoint[] = [];
+  const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
+  const totalMonths = Math.max(1, (now.getFullYear() - cur.getFullYear()) * 12 + (now.getMonth() - cur.getMonth()));
+
+  points.push({ date: new Date(cur), cumulativeReturn: 0 });
+
+  if (totalMonths <= 1) {
+    points.push({ date: new Date(now.getFullYear(), now.getMonth(), now.getDate()), cumulativeReturn: portfolioReturnPct });
+  } else {
+    for (let i = 1; i <= totalMonths; i++) {
+      const d = new Date(cur.getFullYear(), cur.getMonth() + i, 1);
+      const fraction = i / totalMonths;
+      const interpReturn = (Math.pow(1 + portfolioReturn, fraction) - 1) * 100;
+      points.push({ date: d, cumulativeReturn: interpReturn });
+    }
   }
 
   return points;
@@ -334,30 +390,9 @@ const Rentabilidade = () => {
     let carteiraPoints: MonthlyPoint[] = [];
 
     if (mode === 'real') {
-      carteiraPoints = computeRealTWR(transactions, portfolio);
-      // Trim to period
-      if (period !== 'all' && carteiraPoints.length > 0) {
-        const cutoff = new Date();
-        if (period === 'mtd') {
-          cutoff.setDate(1);
-          cutoff.setHours(0, 0, 0, 0);
-        } else {
-          cutoff.setMonth(cutoff.getMonth() - periodMonths);
-        }
-        const filtered = carteiraPoints.filter(p => p.date >= cutoff);
-        if (filtered.length > 0) {
-          // Rebase to 0%
-          const baseReturn = filtered[0].cumulativeReturn;
-          carteiraPoints = filtered.map(p => ({
-            ...p,
-            cumulativeReturn: baseReturn !== 0
-              ? ((1 + p.cumulativeReturn / 100) / (1 + baseReturn / 100) - 1) * 100
-              : p.cumulativeReturn - baseReturn,
-          }));
-        }
-      }
+      carteiraPoints = computeRealReturn(transactions, portfolio, period, periodMonths);
     } else {
-      carteiraPoints = computeSimulation(portfolio, periodMonths);
+      carteiraPoints = computeSimulation(portfolio, period, periodMonths, transactions);
     }
 
     // 2. Benchmark series
