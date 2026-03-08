@@ -316,6 +316,9 @@ const Rentabilidade = () => {
 
   // Determine period months
   const periodMonths = useMemo(() => {
+    if (period === 'mtd') {
+      return 1; // month-to-date uses 1 month window for generators
+    }
     if (period === 'all' && mode === 'real' && transactions.length > 0) {
       const firstDate = new Date(transactions[0].date);
       const now = new Date();
