@@ -78,7 +78,8 @@ const Contributions = () => {
   const updateNote = useUpdateContributionNote();
 
   // --- State ---
-  const [aporteValue, setAporteValue] = useState(0);
+  const [aporteRaw, setAporteRaw] = useState('');
+  const aporteValue = parseMoney(aporteRaw);
   const [aporteDate, setAporteDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<AllocMode>('score_rebalanceamento');
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
