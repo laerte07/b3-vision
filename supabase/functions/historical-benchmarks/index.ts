@@ -60,6 +60,32 @@ async function fetchBRAPIHistorical(
   return prices;
 }
 
+// Try ranges in order of preference (largest first), fallback to smaller if plan-limited
+const BRAPI_RANGES = ["5y", "3mo", "1mo"];
+
+async function fetchBRAPIWithFallback(
+  ticker: string,
+  token: string,
+): Promise<{ date: number; close: number }[]> {
+  for (const range of BRAPI_RANGES) {
+    try {
+      const data = await fetchBRAPIHistorical(ticker, token, range);
+      if (data.length > 0) {
+        console.log(`[BRAPI] ${ticker}: success with range=${range}, ${data.length} points`);
+        return data;
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("INVALID_RANGE") || msg.includes("não está disponível")) {
+        console.log(`[BRAPI] ${ticker}: range=${range} not available, trying next...`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  return [];
+}
+
 // ─── Main handler ───────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -157,7 +183,7 @@ Deno.serve(async (req) => {
             results[code] = { ok: false, error: "BRAPI_TOKEN required for IBOV" };
             continue;
           }
-          const data = await fetchBRAPIHistorical("^BVSP", brapiToken, "5y");
+          const data = await fetchBRAPIWithFallback("^BVSP", brapiToken);
           console.log(`[IBOV] Got ${data.length} data points from BRAPI`);
 
           for (const row of data) {
@@ -187,7 +213,7 @@ Deno.serve(async (req) => {
           const tickers = ["IFIX", "IFIX11"];
           for (const ticker of tickers) {
             try {
-              data = await fetchBRAPIHistorical(ticker, brapiToken, "5y");
+              data = await fetchBRAPIWithFallback(ticker, brapiToken);
               if (data.length > 0) {
                 console.log(`[IFIX] Success with ticker: ${ticker}`);
                 break;
