@@ -98,9 +98,13 @@
 }
 
 @layer utilities {
-  /* Glass surface */
+  /* Glass surface with hover lift */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-lg;
+    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-lg transition-all duration-200;
+  }
+  .glass-card:hover {
+    @apply border-border/80 bg-card/95;
+    box-shadow: 0 4px 24px -4px hsl(222 47% 3% / 0.5);
   }
 
   /* Subtle glow */
@@ -119,6 +123,7 @@
   /* Insight card */
   .insight-card {
     @apply rounded-lg border border-border/40 bg-card/60 p-4 transition-all duration-200 hover:bg-card/90 hover:border-border/70;
+    &:hover { box-shadow: 0 2px 16px -4px hsl(222 47% 3% / 0.4); }
   }
 
   /* Page section title */
@@ -126,13 +131,35 @@
     @apply text-sm font-semibold tracking-tight text-foreground;
   }
 
-  /* Data table row */
+  /* Data table row with smooth highlight */
   .data-row {
-    @apply border-b border-border/30 last:border-0 hover:bg-accent/40 transition-colors;
+    @apply border-b border-border/30 last:border-0 transition-colors duration-150;
+    &:hover {
+      background: hsl(var(--accent) / 0.5);
+    }
   }
 
   /* Stat block */
   .stat-block {
-    @apply p-4 rounded-lg bg-muted/30 border border-border/30;
+    @apply p-4 rounded-lg bg-muted/30 border border-border/30 transition-all duration-200;
+    &:hover { @apply bg-muted/50 border-border/50; }
+  }
+
+  /* Sidebar text fade-in */
+  .sidebar-label-enter {
+    animation: sidebarLabelIn 200ms ease-out both;
+  }
+  @keyframes sidebarLabelIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Page entrance animation */
+  .page-enter {
+    animation: pageEnter 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+  @keyframes pageEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }
