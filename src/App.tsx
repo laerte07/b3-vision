@@ -15,6 +15,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Score from "./pages/Score";
 import Contributions from "./pages/Contributions";
+import Rentabilidade from "./pages/Rentabilidade";
 import NotFound from "./pages/NotFound";
 import { ReactNode } from "react";
 
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="portfolio" element={<Portfolio />} />
               <Route path="rebalancing" element={<Rebalancing />} />
               <Route path="contributions" element={<Contributions />} />
+              <Route path="rentabilidade" element={<Rentabilidade />} />
               <Route path="valuations" element={<Valuations />} />
               <Route path="score" element={<Score />} />
               <Route path="correlation" element={<Correlation />} />
