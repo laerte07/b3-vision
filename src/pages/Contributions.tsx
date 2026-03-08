@@ -415,7 +415,7 @@ const Contributions = () => {
   const duplicateLast = useCallback(() => {
     if (contributions.length === 0) return;
     const last = contributions[0];
-    setAporteValue(last.total_amount);
+    setAporteRaw(String(last.total_amount));
     setMode(last.allocation_mode as AllocMode);
     if (last.allocation_mode === 'manual') {
       const amounts: Record<string, number> = {};
@@ -490,7 +490,7 @@ const Contributions = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label>Valor do aporte (R$)</Label>
-              <Input type="number" min={0} value={aporteValue || ''} onChange={e => setAporteValue(Number(e.target.value) || 0)} className="font-mono" placeholder="0" />
+              <Input type="text" inputMode="decimal" value={aporteRaw} onChange={e => setAporteRaw(e.target.value)} className="font-mono" placeholder="0,00" />
             </div>
             <div className="space-y-2">
               <Label>Data do aporte</Label>
@@ -810,7 +810,7 @@ const Contributions = () => {
                           <Button
                             variant="ghost" size="sm" className="h-7 w-7 p-0"
                             onClick={() => {
-                              setAporteValue(c.total_amount);
+                              setAporteRaw(String(c.total_amount));
                               setMode(c.allocation_mode as AllocMode);
                             }}
                           >
