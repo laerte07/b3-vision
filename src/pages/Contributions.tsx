@@ -77,7 +77,7 @@ const Contributions = () => {
   const updateNote = useUpdateContributionNote();
 
   // --- State ---
-  const [aporteValue, setAporteValue] = useState(5000);
+  const [aporteValue, setAporteValue] = useState(0);
   const [aporteDate, setAporteDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<AllocMode>('score_rebalanceamento');
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
@@ -215,7 +215,7 @@ const Contributions = () => {
           });
         }
       }
-      return results.filter(s => s.suggestedQty > 0);
+      return results;
     }
 
     // Rebalanceamento or Score + Rebalanceamento
@@ -226,7 +226,7 @@ const Contributions = () => {
       const idealValue = totalWithAporte * (target.target_percent / 100);
       const deficit = idealValue - currentValue;
       return { classId: target.class_id, className: cls?.name ?? '?', positions, currentValue, idealValue, deficit, targetPct: target.target_percent };
-    }).filter(cd => cd.deficit > 10).sort((a, b) => b.deficit - a.deficit);
+    }).filter(cd => cd.deficit > 0).sort((a, b) => b.deficit - a.deficit);
 
     let remaining = aporteValue;
     const results: SuggestionItem[] = [];
@@ -248,17 +248,15 @@ const Contributions = () => {
 
       if (sortedAssets.length === 0) continue;
 
-      // Distribute within class — prioritize top assets
+      // Distribute within class — try each asset in priority order
       let classRemaining = classAlloc;
       for (let i = 0; i < sortedAssets.length && classRemaining > 0; i++) {
         const asset = sortedAssets[i];
         const price = asset.last_price ?? asset.avg_price;
         if (price <= 0) continue;
 
-        // Give more to higher-ranked assets
-        const share = i === 0 ? Math.min(classRemaining, classAlloc * 0.6) : classRemaining;
-        const qty = Math.floor(share / price);
-        if (qty <= 0) continue;
+        const qty = Math.floor(classRemaining / price);
+        if (qty <= 0) continue; // can't afford this asset, try next (cheaper) one
 
         const actualAmt = qty * price;
         const currentVal = asset.quantity * price;
@@ -280,7 +278,7 @@ const Contributions = () => {
           price,
           suggestedAmount: actualAmt,
           suggestedQty: qty,
-          remainder: share - actualAmt,
+          remainder: classRemaining - actualAmt,
           reason,
         });
 
