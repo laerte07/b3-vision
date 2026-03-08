@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
             results[code] = { ok: false, error: "BRAPI_TOKEN required for IBOV" };
             continue;
           }
-          const data = await fetchBRAPIHistorical("^BVSP", brapiToken, "5y");
+          const data = await fetchBRAPIWithFallback("^BVSP", brapiToken);
           console.log(`[IBOV] Got ${data.length} data points from BRAPI`);
 
           for (const row of data) {
@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
           const tickers = ["IFIX", "IFIX11"];
           for (const ticker of tickers) {
             try {
-              data = await fetchBRAPIHistorical(ticker, brapiToken, "5y");
+              data = await fetchBRAPIWithFallback(ticker, brapiToken);
               if (data.length > 0) {
                 console.log(`[IFIX] Success with ticker: ${ticker}`);
                 break;
