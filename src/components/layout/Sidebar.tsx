@@ -97,7 +97,7 @@ const SidebarNav = ({ pinned, setPinned, hovered, setHovered, expanded, mobileOp
             <TrendingUp className="h-3.5 w-3.5 text-primary" />
           </div>
           {showLabels && (
-            <span className="text-sm font-semibold text-foreground tracking-tight whitespace-nowrap">Fortuna</span>
+            <span className="text-sm font-semibold text-foreground tracking-tight whitespace-nowrap sidebar-label-enter">Fortuna</span>
           )}
         </Link>
         {isMobile && (
@@ -128,7 +128,7 @@ const SidebarNav = ({ pinned, setPinned, hovered, setHovered, expanded, mobileOp
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-primary rounded-r-full" />
               )}
               <item.icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
-              {showLabels && <span>{item.label}</span>}
+              {showLabels && <span className="sidebar-label-enter">{item.label}</span>}
             </Link>
           );
         })}
