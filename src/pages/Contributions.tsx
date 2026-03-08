@@ -17,6 +17,7 @@ import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
 import { formatBRL, formatPct } from '@/lib/format';
+import { parseMoney } from '@/lib/parse-money';
 
 // ============================================================
 // ALLOCATION MODES
