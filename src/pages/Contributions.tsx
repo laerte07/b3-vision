@@ -211,7 +211,14 @@ const Contributions = () => {
     // ==================================================================
     // Rebalanceamento / Score + Reb. — ROUND-ROBIN DIVERSIFIED ALGORITHM
     // ==================================================================
-    const MAX_PCT_PER_ASSET = 0.35; // No single asset gets > 35% of contribution
+    // Dynamic cap per asset based on contribution size
+    const getMaxPctPerAsset = (value: number): number => {
+      if (value <= 150) return 0.95;   // nearly no cap for tiny contributions
+      if (value <= 500) return 0.60;
+      if (value <= 1500) return 0.45;
+      return 0.35;
+    };
+    const MAX_PCT_PER_ASSET = getMaxPctPerAsset(aporteValue);
     const maxPerAsset = aporteValue * MAX_PCT_PER_ASSET;
 
     const activeAssetsPriced = activeAssets.filter(a => (a.last_price ?? a.avg_price) > 0);
@@ -399,6 +406,9 @@ const Contributions = () => {
       : '0';
     console.log('[Aportes Debug]', {
       aporteRaw, aporteParsed: aporteValue, mode,
+      faixa: aporteValue <= 150 ? '≤150' : aporteValue <= 500 ? '151-500' : aporteValue <= 1500 ? '501-1500' : '>1500',
+      tetoAplicado: (MAX_PCT_PER_ASSET * 100).toFixed(0) + '%',
+      maxPerAsset: maxPerAsset.toFixed(2),
       eligibleAssets: activeAssetsPriced.length,
       assetsWithPriority: priorities.map(p => ({
         ticker: p.asset.ticker, sector: p.asset.sector, score: p.score,
