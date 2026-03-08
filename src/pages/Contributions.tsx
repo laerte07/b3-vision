@@ -977,6 +977,19 @@ const Contributions = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Launch Modal */}
+      <ContributionLaunchModal
+        open={showLaunchModal}
+        onOpenChange={setShowLaunchModal}
+        portfolio={portfolio}
+        classes={classes}
+        prefillItems={suggestions.filter(s => s.suggestedQty > 0).length > 0 ? prefillItems : undefined}
+        aporteDate={aporteDate}
+        noteText={noteText}
+        onConfirm={handleLaunchConfirm}
+        isPending={confirmContribution.isPending}
+      />
     </div>
   );
 };
