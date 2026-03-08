@@ -4,45 +4,70 @@
 
 @layer base {
   :root {
-    --background: 222 25% 6%;
-    --foreground: 210 20% 92%;
-    --card: 222 20% 10%;
-    --card-foreground: 210 20% 92%;
-    --popover: 222 18% 12%;
-    --popover-foreground: 210 20% 92%;
-    --primary: 43 85% 55%;
-    --primary-foreground: 222 25% 6%;
-    --secondary: 222 15% 16%;
-    --secondary-foreground: 210 20% 85%;
-    --muted: 222 15% 14%;
-    --muted-foreground: 215 15% 55%;
-    --accent: 222 15% 18%;
-    --accent-foreground: 210 20% 92%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 222 12% 20%;
-    --input: 222 12% 20%;
-    --ring: 43 85% 55%;
-    --radius: 0.75rem;
+    /* Deep space background */
+    --background: 220 20% 4%;
+    --foreground: 220 15% 90%;
 
-    --positive: 142 70% 45%;
-    --negative: 0 72% 51%;
+    /* Cards: subtle layered depth */
+    --card: 222 18% 7%;
+    --card-foreground: 220 15% 90%;
+
+    /* Elevated surfaces */
+    --popover: 222 16% 9%;
+    --popover-foreground: 220 15% 90%;
+
+    /* Gold accent — refined warm amber */
+    --primary: 42 78% 56%;
+    --primary-foreground: 220 20% 4%;
+
+    /* Secondary surfaces */
+    --secondary: 220 14% 11%;
+    --secondary-foreground: 220 12% 75%;
+
+    /* Muted tones */
+    --muted: 220 14% 10%;
+    --muted-foreground: 220 10% 45%;
+
+    /* Accent highlight */
+    --accent: 220 14% 13%;
+    --accent-foreground: 220 15% 90%;
+
+    /* Status colors */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders — ultra subtle */
+    --border: 220 10% 12%;
+    --input: 220 10% 12%;
+    --ring: 42 78% 56%;
+    --radius: 0.625rem;
+
+    /* Semantic data colors */
+    --positive: 152 60% 48%;
+    --negative: 0 72% 55%;
     --warning: 38 92% 50%;
 
-    --sidebar-background: 222 25% 4%;
-    --sidebar-foreground: 210 20% 70%;
-    --sidebar-primary: 43 85% 55%;
-    --sidebar-primary-foreground: 222 25% 6%;
-    --sidebar-accent: 222 15% 12%;
-    --sidebar-accent-foreground: 210 20% 92%;
-    --sidebar-border: 222 12% 15%;
-    --sidebar-ring: 43 85% 55%;
+    /* Sidebar */
+    --sidebar-background: 220 22% 3%;
+    --sidebar-foreground: 220 10% 50%;
+    --sidebar-primary: 42 78% 56%;
+    --sidebar-primary-foreground: 220 20% 4%;
+    --sidebar-accent: 220 14% 8%;
+    --sidebar-accent-foreground: 220 15% 90%;
+    --sidebar-border: 220 10% 8%;
+    --sidebar-ring: 42 78% 56%;
 
-    --chart-1: 43 85% 55%;
-    --chart-2: 200 80% 55%;
-    --chart-3: 142 70% 45%;
-    --chart-4: 280 70% 60%;
-    --chart-5: 0 72% 51%;
+    /* Chart palette — vibrant data viz */
+    --chart-1: 42 78% 56%;
+    --chart-2: 213 80% 62%;
+    --chart-3: 152 60% 48%;
+    --chart-4: 268 60% 62%;
+    --chart-5: 0 72% 55%;
+    --chart-6: 38 92% 50%;
+
+    /* Custom premium tokens */
+    --glow-primary: 42 78% 56%;
+    --surface-elevated: 222 16% 9%;
   }
 
   * {
@@ -51,6 +76,49 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Premium scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(220 10% 18%);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(220 10% 25%);
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+  }
+  .glass-surface {
+    @apply bg-card/50 backdrop-blur-md;
+  }
+  .text-gradient-gold {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[hsl(42,78%,56%)] to-[hsl(38,90%,65%)];
+  }
+  .glow-gold {
+    box-shadow: 0 0 20px -5px hsl(42 78% 56% / 0.15);
+  }
+  .kpi-value {
+    @apply text-3xl font-bold tracking-tight font-mono;
+  }
+  .kpi-label {
+    @apply text-[11px] font-medium text-muted-foreground uppercase tracking-widest;
+  }
+  .insight-card {
+    @apply rounded-lg border border-border/50 bg-card/60 p-4 transition-all duration-200 hover:bg-card/80 hover:border-border;
   }
 }
