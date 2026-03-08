@@ -1,7 +1,23 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Scale, Calculator, GitBranch, FileText, Settings, LogOut, TrendingUp, Brain, Wallet, LineChart } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Briefcase,
+  Scale,
+  Calculator,
+  GitBranch,
+  FileText,
+  Settings,
+  LogOut,
+  TrendingUp,
+  Brain,
+  Wallet,
+  LineChart,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useState } from 'react';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -10,7 +26,7 @@ const navItems = [
   { path: '/contributions', label: 'Aportes', icon: Wallet },
   { path: '/rentabilidade', label: 'Rentabilidade', icon: LineChart },
   { path: '/valuations', label: 'Valuations', icon: Calculator },
-  { path: '/score', label: 'Score Interno', icon: Brain },
+  { path: '/score', label: 'Score', icon: Brain },
   { path: '/correlation', label: 'Correlação', icon: GitBranch },
   { path: '/reports', label: 'Relatórios', icon: FileText },
   { path: '/settings', label: 'Configurações', icon: Settings },
@@ -19,49 +35,77 @@ const navItems = [
 const Sidebar = () => {
   const location = useLocation();
   const { signOut } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col z-50">
-      <div className="p-6 border-b border-sidebar-border">
-        <Link to="/dashboard" className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center">
-            <TrendingUp className="h-5 w-5 text-primary" />
+    <aside
+      className={cn(
+        'fixed left-0 top-0 h-screen bg-sidebar flex flex-col z-50 transition-all duration-300 ease-in-out border-r border-sidebar-border',
+        collapsed ? 'w-[68px]' : 'w-60'
+      )}
+    >
+      {/* Logo */}
+      <div className={cn('flex items-center border-b border-sidebar-border h-16', collapsed ? 'justify-center px-2' : 'px-5')}>
+        <Link to="/dashboard" className="flex items-center gap-2.5 group">
+          <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/15 transition-colors">
+            <TrendingUp className="h-4 w-4 text-primary" />
           </div>
-          <div>
-            <span className="text-lg font-bold text-foreground tracking-tight">Fortuna</span>
-            <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Gestão de Investimentos</p>
-          </div>
+          {!collapsed && (
+            <span className="text-base font-bold text-foreground tracking-tight">
+              Fortuna
+            </span>
+          )}
         </Link>
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {navItems.map(item => {
+      {/* Navigation */}
+      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto mt-2">
+        {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <Link
               key={item.path}
               to={item.path}
+              title={collapsed ? item.label : undefined}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+                'flex items-center gap-2.5 rounded-md text-[13px] font-medium transition-all duration-150 relative',
+                collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2',
                 isActive
-                  ? 'bg-primary/10 text-primary shadow-sm'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                  ? 'text-primary bg-primary/[0.08]'
+                  : 'text-sidebar-foreground hover:text-foreground hover:bg-sidebar-accent'
               )}
             >
-              <item.icon className="h-[18px] w-[18px]" />
-              {item.label}
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-primary rounded-r-full" />
+              )}
+              <item.icon className="h-[16px] w-[16px] shrink-0" />
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-3 border-t border-sidebar-border">
+      {/* Footer */}
+      <div className="p-2 border-t border-sidebar-border space-y-0.5">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className={cn(
+            'flex items-center gap-2.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors w-full',
+            collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
+          )}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {!collapsed && <span>Recolher</span>}
+        </button>
         <button
           onClick={signOut}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors w-full"
+          className={cn(
+            'flex items-center gap-2.5 rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors w-full',
+            collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
+          )}
         >
-          <LogOut className="h-[18px] w-[18px]" />
-          Sair
+          <LogOut className="h-4 w-4" />
+          {!collapsed && <span>Sair</span>}
         </button>
       </div>
     </aside>
