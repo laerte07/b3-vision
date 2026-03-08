@@ -293,6 +293,16 @@ const Contributions = () => {
   const totalSuggested = suggestions.reduce((s, item) => s + item.suggestedAmount, 0);
   const totalRemainder = aporteValue - totalSuggested;
 
+  // Minimum eligible price for current strategy
+  const minEligiblePrice = useMemo(() => {
+    if (aporteValue <= 0 || portfolio.length === 0) return 0;
+    const activeAssets = portfolio.filter(p => p.quantity > 0 || p.active);
+    const prices = activeAssets
+      .map(a => a.last_price ?? a.avg_price)
+      .filter(p => p > 0);
+    return prices.length > 0 ? Math.min(...prices) : 0;
+  }, [aporteValue, portfolio]);
+
   // ============================================================
   // IMPACT PROJECTION
   // ============================================================
