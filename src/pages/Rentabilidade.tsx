@@ -5,18 +5,18 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid,
   ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-  TrendingUp, ChevronDown, Check, RotateCcw, Layers, Flame, Globe, BarChart3,
+  TrendingUp, ChevronDown, Check, RotateCcw, Layers, Flame, BarChart3,
   ArrowUpRight, ArrowDownRight, Activity, PlayCircle, Info, RefreshCw,
 } from 'lucide-react';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useTransactions, Transaction } from '@/hooks/useTransactions';
 import { useBenchmarkHistory, BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
-import { formatPct } from '@/lib/format';
 
 // ─── Series definitions ─────────────────────────────────────
 type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ifix' | 'ibov';
@@ -75,63 +75,161 @@ const SERIES_TO_BENCHMARK: Partial<Record<SeriesKey, string>> = {
   ibov: 'IBOV',
   ifix: 'IFIX',
 };
+const BENCHMARK_TO_SERIES: Record<string, SeriesKey> = {
+  CDI: 'cdi',
+  IPCA: 'ipca',
+  IBOV: 'ibov',
+  IFIX: 'ifix',
+};
 
-// ─── Helper: get start-of-period date ───────────────────────
-function getPeriodStartDate(period: PeriodKey, periodMonths: number, transactions: Transaction[]): Date {
+// ─── Date helpers ───────────────────────────────────────────
+function toDateStr(d: Date): string { return d.toISOString().slice(0, 10); }
+
+function getPeriodStartDate(period: PeriodKey, transactions: Transaction[]): Date {
   const now = new Date();
-  if (period === 'mtd') {
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  }
-  if (period === 'all' && transactions.length > 0) {
-    return new Date(transactions[0].date);
-  }
+  if (period === 'mtd') return new Date(now.getFullYear(), now.getMonth(), 1);
+  if (period === 'all' && transactions.length > 0) return new Date(transactions[0].date);
+  const monthsMap: Record<string, number> = { '6m': 6, '12m': 12, '24m': 24, '60m': 60 };
+  const m = monthsMap[period] ?? 12;
   const d = new Date();
-  d.setMonth(d.getMonth() - periodMonths);
+  d.setMonth(d.getMonth() - m);
   return d;
 }
 
-// ─── Helper: find price for an asset at a given date ────────
-function findStartPrice(
-  assetId: string,
-  periodStart: Date,
-  transactions: Transaction[],
-  avgPriceMap: Record<string, number>,
-): number | null {
-  const dateStr = periodStart.toISOString().slice(0, 10);
-  let best: Transaction | null = null;
-  for (const t of transactions) {
-    if (t.asset_id !== assetId) continue;
-    if (t.date <= dateStr) {
-      if (!best || t.date > best.date) best = t;
-    }
+function getPeriodMonths(period: PeriodKey, transactions: Transaction[]): number {
+  if (period === 'mtd') return 1;
+  if (period === 'all' && transactions.length > 0) {
+    const first = new Date(transactions[0].date);
+    const now = new Date();
+    return Math.max(1, (now.getFullYear() - first.getFullYear()) * 12 + (now.getMonth() - first.getMonth()) + 1);
   }
-  if (best) return best.price;
-  if (avgPriceMap[assetId]) return avgPriceMap[assetId];
-  return null;
+  const monthsMap: Record<string, number> = { '6m': 6, '12m': 12, '24m': 24, '60m': 60 };
+  return monthsMap[period] ?? 12;
 }
 
-// ─── Real mode: True TWR (Time-Weighted Return) ────────────
-interface MonthlyPoint { date: Date; cumulativeReturn: number }
+// ─── Build daily timeline ───────────────────────────────────
+function buildDailyTimeline(start: Date, end: Date): string[] {
+  const dates: string[] = [];
+  const cur = new Date(start);
+  cur.setHours(0, 0, 0, 0);
+  const endNorm = new Date(end);
+  endNorm.setHours(0, 0, 0, 0);
+  while (cur <= endNorm) {
+    dates.push(toDateStr(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
 
-function computeRealReturn(
-  transactions: Transaction[],
+// ─── Normalize benchmarks to daily % return from base ───────
+function normalizeBenchmarkDaily(
+  benchmarkData: BenchmarkPoint[],
+  periodStartStr: string,
+): Record<string, Record<string, number>> {
+  // Group by code
+  const grouped: Record<string, BenchmarkPoint[]> = {};
+  for (const p of benchmarkData) {
+    if (!grouped[p.benchmark_code]) grouped[p.benchmark_code] = [];
+    grouped[p.benchmark_code].push(p);
+  }
+
+  const result: Record<string, Record<string, number>> = {};
+
+  for (const [code, points] of Object.entries(grouped)) {
+    // Find base: last point on or before periodStart
+    let baseValue: number | null = null;
+    for (const p of points) {
+      if (p.date <= periodStartStr) baseValue = p.value;
+      else break;
+    }
+    if (baseValue === null && points.length > 0) baseValue = points[0].value;
+    if (!baseValue || baseValue === 0) {
+      if (import.meta.env.DEV) console.warn(`[Benchmark ${code}] No base value found, skipping`);
+      continue;
+    }
+
+    const daily: Record<string, number> = {};
+    let lastPct = 0;
+    for (const p of points) {
+      if (p.date < periodStartStr) continue;
+      const pct = ((p.value / baseValue) - 1) * 100;
+      daily[p.date] = pct;
+      lastPct = pct;
+    }
+
+    result[code] = daily;
+
+    if (import.meta.env.DEV) {
+      const keys = Object.keys(daily);
+      console.log(`[Benchmark ${code}] base=${baseValue.toFixed(2)}, points=${keys.length}, first=${daily[keys[0]]?.toFixed(4) ?? 'N/A'}%, last=${lastPct.toFixed(4)}%`);
+    }
+  }
+
+  return result;
+}
+
+// ─── Simulation mode: weighted return by current composition ─
+function computeSimulationReturn(
   portfolio: PortfolioAsset[],
-  period: PeriodKey,
-  periodMonths: number,
-): MonthlyPoint[] {
-  if (portfolio.length === 0) return [];
-
-  const periodStart = getPeriodStartDate(period, periodMonths, transactions);
-  const now = new Date();
-  const periodStartStr = periodStart.toISOString().slice(0, 10);
-  const nowStr = now.toISOString().slice(0, 10);
+  transactions: Transaction[],
+  periodStartStr: string,
+): number | null {
+  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
+  const totalValue = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
+  if (totalValue <= 0) return null;
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
 
+  if (import.meta.env.DEV) console.group('[Simulação] Cálculo');
+
+  let portfolioReturn = 0;
+
+  for (const asset of activeAssets) {
+    const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
+    const currentPrice = asset.last_price!;
+
+    // Find start price: last transaction price on or before periodStart
+    let startPrice: number | null = null;
+    for (const t of sorted) {
+      if (t.asset_id !== asset.id) continue;
+      if (t.date <= periodStartStr) startPrice = t.price;
+      else break;
+    }
+    if (!startPrice) startPrice = asset.avg_price;
+    if (startPrice <= 0) continue;
+
+    const ret = (currentPrice / startPrice) - 1;
+    portfolioReturn += weight * ret;
+
+    if (import.meta.env.DEV) {
+      console.log(`  ${asset.ticker}: peso=${(weight * 100).toFixed(1)}%, início=${startPrice.toFixed(2)}, atual=${currentPrice.toFixed(2)}, ret=${(ret * 100).toFixed(2)}%`);
+    }
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(`Retorno simulado: ${(portfolioReturn * 100).toFixed(4)}%`);
+    console.groupEnd();
+  }
+
+  return portfolioReturn * 100;
+}
+
+// ─── Real mode: TWR (Time-Weighted Return) ──────────────────
+function computeRealTWR(
+  transactions: Transaction[],
+  portfolio: PortfolioAsset[],
+  periodStartStr: string,
+  nowStr: string,
+): number | null {
+  if (portfolio.length === 0) return null;
+
+  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
   const currentPriceMap: Record<string, number> = {};
   portfolio.forEach(a => { if (a.last_price != null) currentPriceMap[a.id] = a.last_price; });
 
+  // Build positions up to period start
   const positions: Record<string, { qty: number; avgPrice: number }> = {};
+  const lastKnownPrice: Record<string, number> = {};
 
   const updatePosition = (tx: Transaction) => {
     if (!positions[tx.asset_id]) positions[tx.asset_id] = { qty: 0, avgPrice: 0 };
@@ -152,11 +250,6 @@ function computeRealReturn(
   for (const tx of sorted) {
     if (tx.date > periodStartStr) break;
     updatePosition(tx);
-  }
-
-  const lastKnownPrice: Record<string, number> = {};
-  for (const tx of sorted) {
-    if (tx.date > periodStartStr) break;
     lastKnownPrice[tx.asset_id] = tx.price;
   }
   for (const [id, pos] of Object.entries(positions)) {
@@ -167,31 +260,22 @@ function computeRealReturn(
     let total = 0;
     for (const [id, pos] of Object.entries(positions)) {
       if (pos.qty <= 0) continue;
-      const price = lastKnownPrice[id] ?? 0;
-      total += pos.qty * price;
+      total += pos.qty * (lastKnownPrice[id] ?? 0);
     }
     return total;
   };
 
   const inPeriodTxs = sorted.filter(tx => tx.date > periodStartStr && tx.date <= nowStr);
-
   let twrProduct = 1;
   let prevValue = valuate();
 
   if (import.meta.env.DEV) {
-    console.group('[Rentabilidade Real TWR] Cálculo');
+    console.group('[Real TWR] Cálculo');
     console.log('Período:', periodStartStr, '→', nowStr);
     console.log('Posições no início:', JSON.parse(JSON.stringify(positions)));
     console.log('Patrimônio inicial:', prevValue.toFixed(2));
+    console.log('Transações no período:', inPeriodTxs.length);
   }
-
-  const monthlySnapshots: { date: string; twrCumulative: number }[] = [];
-  const addSnapshot = (dateStr: string) => {
-    monthlySnapshots.push({ date: dateStr, twrCumulative: (twrProduct - 1) * 100 });
-  };
-
-  addSnapshot(periodStartStr);
-  let currentMonth = periodStartStr.slice(0, 7);
 
   for (const tx of inPeriodTxs) {
     lastKnownPrice[tx.asset_id] = tx.price;
@@ -200,43 +284,25 @@ function computeRealReturn(
     if (prevValue > 0) {
       const subReturn = (valueBeforeFlow / prevValue) - 1;
       twrProduct *= (1 + subReturn);
-
       if (import.meta.env.DEV) {
-        console.log(`  Fluxo ${tx.date} | ${tx.type} ${tx.quantity}x ${portfolio.find(a => a.id === tx.asset_id)?.ticker ?? tx.asset_id} @ ${tx.price.toFixed(2)}`);
-        console.log(`    Patrimônio antes: ${prevValue.toFixed(2)} → ${valueBeforeFlow.toFixed(2)} | Retorno sub-período: ${(subReturn * 100).toFixed(4)}% | TWR acumulado: ${((twrProduct - 1) * 100).toFixed(4)}%`);
-      }
-    }
-
-    const txMonth = tx.date.slice(0, 7);
-    while (currentMonth < txMonth) {
-      const [y, m] = currentMonth.split('-').map(Number);
-      const nextM = m === 12 ? 1 : m + 1;
-      const nextY = m === 12 ? y + 1 : y;
-      currentMonth = `${nextY}-${String(nextM).padStart(2, '0')}`;
-      if (currentMonth <= txMonth) {
-        addSnapshot(`${currentMonth}-01`);
+        console.log(`  Fluxo ${tx.date} | ${tx.type} ${tx.quantity}x ${portfolio.find(a => a.id === tx.asset_id)?.ticker ?? '?'} @ ${tx.price.toFixed(2)} | Pat: ${prevValue.toFixed(2)}→${valueBeforeFlow.toFixed(2)} | Sub: ${(subReturn * 100).toFixed(4)}%`);
       }
     }
 
     updatePosition(tx);
     prevValue = valuate();
-
-    if (import.meta.env.DEV) {
-      console.log(`    Patrimônio depois do fluxo: ${prevValue.toFixed(2)}`);
-    }
   }
 
+  // Final sub-period with current prices
   for (const [id, price] of Object.entries(currentPriceMap)) {
     lastKnownPrice[id] = price;
   }
   const finalValue = valuate();
-
   if (prevValue > 0) {
-    const finalSubReturn = (finalValue / prevValue) - 1;
-    twrProduct *= (1 + finalSubReturn);
-
+    const finalSub = (finalValue / prevValue) - 1;
+    twrProduct *= (1 + finalSub);
     if (import.meta.env.DEV) {
-      console.log(`  Final: Patrimônio ${prevValue.toFixed(2)} → ${finalValue.toFixed(2)} | Retorno: ${(finalSubReturn * 100).toFixed(4)}%`);
+      console.log(`  Final: Pat ${prevValue.toFixed(2)}→${finalValue.toFixed(2)} | Sub: ${(finalSub * 100).toFixed(4)}%`);
     }
   }
 
@@ -247,173 +313,156 @@ function computeRealReturn(
     console.groupEnd();
   }
 
-  const nowMonth = nowStr.slice(0, 7);
-  while (currentMonth < nowMonth) {
-    const [y, m] = currentMonth.split('-').map(Number);
-    const nextM = m === 12 ? 1 : m + 1;
-    const nextY = m === 12 ? y + 1 : y;
-    currentMonth = `${nextY}-${String(nextM).padStart(2, '0')}`;
-    addSnapshot(`${currentMonth}-01`);
-  }
-  addSnapshot(nowStr);
+  // If no initial value and no transactions in period → no real data
+  if (prevValue === 0 && inPeriodTxs.length === 0) return null;
 
-  if (monthlySnapshots.length > 0) {
-    monthlySnapshots[monthlySnapshots.length - 1].twrCumulative = totalTWR;
-  }
-
-  const points: MonthlyPoint[] = [];
-  const startDate = new Date(periodStartStr);
-  const totalDays = (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-  if (totalDays <= 0) return [];
-
-  const cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-  const endMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const snapshotMap: Record<string, number> = {};
-  monthlySnapshots.forEach(s => {
-    const key = s.date.slice(0, 7);
-    snapshotMap[key] = s.twrCumulative;
-  });
-
-  points.push({ date: new Date(cur), cumulativeReturn: 0 });
-
-  const totalMonths = (endMonth.getFullYear() - cur.getFullYear()) * 12 + (endMonth.getMonth() - cur.getMonth());
-
-  if (totalMonths <= 1) {
-    points.push({ date: now, cumulativeReturn: totalTWR });
-  } else {
-    for (let i = 1; i <= totalMonths; i++) {
-      const d = new Date(cur.getFullYear(), cur.getMonth() + i, 1);
-      const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (snapshotMap[mk] !== undefined) {
-        points.push({ date: d, cumulativeReturn: snapshotMap[mk] });
-      } else {
-        const fraction = i / totalMonths;
-        const interpReturn = (Math.pow(twrProduct, fraction) - 1) * 100;
-        points.push({ date: d, cumulativeReturn: interpReturn });
-      }
-    }
-    if (points[points.length - 1].cumulativeReturn !== totalTWR) {
-      points.push({ date: now, cumulativeReturn: totalTWR });
-    }
-  }
-
-  return points;
+  return totalTWR;
 }
 
-// ─── Simulation: current weights applied retroactively ──────
-function computeSimulation(
-  portfolio: PortfolioAsset[],
+// ═══════════════════════════════════════════════════════════════
+// UNIFIED DATA PIPELINE
+// Chart, tooltip, and summary ALL consume this single object
+// ═══════════════════════════════════════════════════════════════
+interface UnifiedChartPoint {
+  dateStr: string;  // YYYY-MM-DD (for sorting)
+  label: string;    // display label
+  carteira?: number;
+  cdi?: number;
+  ipca?: number;
+  ibov?: number;
+  ifix?: number;
+}
+
+interface UnifiedResult {
+  chartData: UnifiedChartPoint[];
+  finalValues: Partial<Record<SeriesKey, number>>; // final % for each series
+  hasCarteiraData: boolean;
+}
+
+function buildUnifiedData(
+  mode: Mode,
   period: PeriodKey,
-  periodMonths: number,
   transactions: Transaction[],
-): MonthlyPoint[] {
-  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
-  const totalValue = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
-  if (totalValue <= 0) return [];
+  portfolio: PortfolioAsset[],
+  benchmarkRawData: BenchmarkPoint[],
+): UnifiedResult {
+  const periodStart = getPeriodStartDate(period, transactions);
+  const now = new Date();
+  const periodStartStr = toDateStr(periodStart);
+  const nowStr = toDateStr(now);
 
-  const periodStart = getPeriodStartDate(period, periodMonths, transactions);
-  const avgPriceMap: Record<string, number> = {};
-  portfolio.forEach(a => { avgPriceMap[a.id] = a.avg_price; });
-
-  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-
-  if (import.meta.env.DEV) {
-    console.group('[Rentabilidade Simulação] Debug');
-    console.log('Período:', periodStart.toISOString().slice(0, 10));
+  // 1. Compute portfolio return
+  let carteiraFinal: number | null = null;
+  if (mode === 'real') {
+    carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, nowStr);
+  } else {
+    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr);
   }
 
-  let portfolioReturn = 0;
+  const hasCarteiraData = carteiraFinal !== null;
 
-  for (const asset of activeAssets) {
-    const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
-    const currentPrice = asset.last_price!;
-    const startPrice = findStartPrice(asset.id, periodStart, sorted, avgPriceMap) ?? asset.avg_price;
-    
-    if (startPrice <= 0) continue;
-    const ret = (currentPrice / startPrice) - 1;
-    portfolioReturn += weight * ret;
+  // 2. Normalize benchmarks to daily % returns
+  const benchmarkDaily = normalizeBenchmarkDaily(benchmarkRawData, periodStartStr);
 
-    if (import.meta.env.DEV) {
-      console.log(`  ${asset.ticker}: peso=${(weight * 100).toFixed(1)}%, preço_início=${startPrice.toFixed(2)}, preço_atual=${currentPrice.toFixed(2)}, ret=${(ret * 100).toFixed(2)}%`);
+  // 3. Build timeline (daily for <=6m, weekly sampling for longer)
+  const allDays = buildDailyTimeline(periodStart, now);
+  const useDaily = allDays.length <= 200; // ~6.5 months
+
+  let timelineDays: string[];
+  if (useDaily) {
+    timelineDays = allDays;
+  } else {
+    // Sample: every 7 days + first + last
+    timelineDays = [allDays[0]];
+    for (let i = 7; i < allDays.length - 1; i += 7) {
+      timelineDays.push(allDays[i]);
+    }
+    if (timelineDays[timelineDays.length - 1] !== allDays[allDays.length - 1]) {
+      timelineDays.push(allDays[allDays.length - 1]);
     }
   }
 
-  const portfolioReturnPct = portfolioReturn * 100;
+  // 4. Format labels
+  const formatLabel = (dateStr: string): string => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    if (useDaily) {
+      return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    }
+    return dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+  };
+
+  // 5. Build chart points
+  const totalDays = allDays.length - 1;
+  const chartData: UnifiedChartPoint[] = [];
+  const finalValues: Partial<Record<SeriesKey, number>> = {};
+
+  // For carteira: linear interpolation from 0 to final value
+  // (we don't have daily portfolio prices, so interpolate smoothly)
+  for (const dateStr of timelineDays) {
+    const dayIndex = allDays.indexOf(dateStr);
+    const fraction = totalDays > 0 ? dayIndex / totalDays : 1;
+
+    const point: UnifiedChartPoint = {
+      dateStr,
+      label: formatLabel(dateStr),
+    };
+
+    // Carteira (interpolated)
+    if (carteiraFinal !== null) {
+      // Compound interpolation: (1 + totalReturn)^fraction - 1
+      const totalReturnDec = carteiraFinal / 100;
+      const interpPct = totalReturnDec >= -1
+        ? (Math.pow(1 + totalReturnDec, fraction) - 1) * 100
+        : carteiraFinal * fraction;
+      point.carteira = +interpPct.toFixed(2);
+    }
+
+    // Benchmarks (use actual daily data with forward-fill)
+    for (const [code, daily] of Object.entries(benchmarkDaily)) {
+      const seriesKey = BENCHMARK_TO_SERIES[code];
+      if (!seriesKey) continue;
+
+      // Find closest available value on or before this date
+      let val: number | undefined;
+      // Try exact date first
+      if (daily[dateStr] !== undefined) {
+        val = daily[dateStr];
+      } else {
+        // Forward-fill: find last available value before this date
+        let lastVal = 0;
+        for (const d of allDays) {
+          if (d > dateStr) break;
+          if (daily[d] !== undefined) lastVal = daily[d];
+        }
+        val = lastVal;
+      }
+
+      (point as any)[seriesKey] = +val.toFixed(2);
+    }
+
+    chartData.push(point);
+  }
+
+  // 6. Collect final values from LAST chart point
+  const lastPoint = chartData[chartData.length - 1];
+  if (lastPoint) {
+    for (const s of ALL_SERIES) {
+      const v = (lastPoint as any)[s.key] as number | undefined;
+      if (v !== undefined) finalValues[s.key] = v;
+    }
+  }
 
   if (import.meta.env.DEV) {
-    console.log(`Retorno simulado: ${portfolioReturnPct.toFixed(2)}%`);
+    console.group('[UnifiedData] Resultado');
+    console.log('Modo:', mode, '| Período:', period, '| Timeline:', periodStartStr, '→', nowStr);
+    console.log('Pontos no gráfico:', chartData.length);
+    console.log('Valores finais:', finalValues);
+    console.log('Tem dados carteira:', hasCarteiraData);
     console.groupEnd();
   }
 
-  const now = new Date();
-  const points: MonthlyPoint[] = [];
-  const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
-  const totalMonths = Math.max(1, (now.getFullYear() - cur.getFullYear()) * 12 + (now.getMonth() - cur.getMonth()));
-
-  points.push({ date: new Date(cur), cumulativeReturn: 0 });
-
-  if (totalMonths <= 1) {
-    points.push({ date: new Date(now.getFullYear(), now.getMonth(), now.getDate()), cumulativeReturn: portfolioReturnPct });
-  } else {
-    for (let i = 1; i <= totalMonths; i++) {
-      const d = new Date(cur.getFullYear(), cur.getMonth() + i, 1);
-      const fraction = i / totalMonths;
-      const interpReturn = (Math.pow(1 + portfolioReturn, fraction) - 1) * 100;
-      points.push({ date: d, cumulativeReturn: interpReturn });
-    }
-  }
-
-  return points;
-}
-
-// ─── Benchmark normalization helper ─────────────────────────
-// Takes raw benchmark data and normalizes to cumulative % return from period start
-function normalizeBenchmarks(
-  benchmarkData: BenchmarkPoint[],
-  periodStart: Date,
-): Record<string, { date: string; pctReturn: number }[]> {
-  const grouped: Record<string, BenchmarkPoint[]> = {};
-  for (const p of benchmarkData) {
-    if (!grouped[p.benchmark_code]) grouped[p.benchmark_code] = [];
-    grouped[p.benchmark_code].push(p);
-  }
-
-  const result: Record<string, { date: string; pctReturn: number }[]> = {};
-  const periodStartStr = periodStart.toISOString().slice(0, 10);
-
-  for (const [code, points] of Object.entries(grouped)) {
-    // Find base value: first point on or before periodStart
-    // Points are sorted by date ascending
-    let baseValue: number | null = null;
-    for (const p of points) {
-      if (p.date <= periodStartStr) {
-        baseValue = p.value;
-      } else {
-        break;
-      }
-    }
-    // If no point before period start, use first available
-    if (baseValue === null && points.length > 0) {
-      baseValue = points[0].value;
-    }
-    if (baseValue === null || baseValue === 0) continue;
-
-    const normalized = points
-      .filter(p => p.date >= periodStartStr)
-      .map(p => ({
-        date: p.date,
-        pctReturn: ((p.value / baseValue!) - 1) * 100,
-      }));
-
-    result[code] = normalized;
-
-    if (import.meta.env.DEV) {
-      console.log(`[Benchmark ${code}] base=${baseValue.toFixed(2)}, points=${normalized.length}, last=${normalized[normalized.length - 1]?.pctReturn.toFixed(2) ?? 'N/A'}%`);
-    }
-  }
-
-  return result;
+  return { chartData, finalValues, hasCarteiraData };
 }
 
 // ─── Component ──────────────────────────────────────────────
@@ -423,47 +472,31 @@ const Rentabilidade = () => {
   const [mode, setMode] = useState<Mode>(loadMode);
   const [hoveredSeries, setHoveredSeries] = useState<SeriesKey | null>(null);
 
-  const { data: portfolio = [] } = usePortfolio();
-  const { data: transactions = [] } = useTransactions();
+  const { data: portfolio = [], isLoading: portfolioLoading } = usePortfolio();
+  const { data: transactions = [], isLoading: txLoading } = useTransactions();
 
   useEffect(() => { saveSeries(visibleSeries); }, [visibleSeries]);
   useEffect(() => { saveMode(mode); }, [mode]);
 
-  // Determine period months
-  const periodMonths = useMemo(() => {
-    if (period === 'mtd') return 1;
-    if (period === 'all' && mode === 'real' && transactions.length > 0) {
-      const firstDate = new Date(transactions[0].date);
-      const now = new Date();
-      return Math.max(1, (now.getFullYear() - firstDate.getFullYear()) * 12 + (now.getMonth() - firstDate.getMonth()) + 1);
-    }
-    const found = PERIODS.find(p => p.key === period);
-    return found?.months || 12;
-  }, [period, mode, transactions]);
-
-  // Compute period start date for benchmark fetching
+  // Compute period start date for benchmark fetching (with padding)
   const periodStartDate = useMemo(() => {
-    // Fetch a bit more data than needed for base value lookup
-    const d = getPeriodStartDate(period, periodMonths, transactions);
-    // Go back 1 extra month to ensure we find a base value
+    const d = getPeriodStartDate(period, transactions);
     const padded = new Date(d);
     padded.setMonth(padded.getMonth() - 1);
     return padded;
-  }, [period, periodMonths, transactions]);
+  }, [period, transactions]);
 
-  // Benchmark codes to fetch (from visible series)
+  // Benchmark codes to fetch
   const benchmarkCodes = useMemo(() => {
     const codes: string[] = [];
     for (const s of visibleSeries) {
       const code = SERIES_TO_BENCHMARK[s];
       if (code) codes.push(code);
     }
-    // Always fetch CDI for reference even if not visible
     if (!codes.includes('CDI')) codes.push('CDI');
     return codes;
   }, [visibleSeries]);
 
-  // Fetch real benchmark data
   const {
     data: benchmarkRawData,
     isLoading: benchmarkLoading,
@@ -471,90 +504,34 @@ const Rentabilidade = () => {
     triggerSync,
   } = useBenchmarkHistory(benchmarkCodes, periodStartDate);
 
-  // Build chart data
-  const chartData = useMemo(() => {
-    // 1. Carteira series
-    let carteiraPoints: MonthlyPoint[] = [];
+  // ═══ SINGLE SOURCE OF TRUTH ═══
+  const unified = useMemo(() => {
+    return buildUnifiedData(mode, period, transactions, portfolio, benchmarkRawData);
+  }, [mode, period, transactions, portfolio, benchmarkRawData]);
 
-    if (mode === 'real') {
-      carteiraPoints = computeRealReturn(transactions, portfolio, period, periodMonths);
-    } else {
-      carteiraPoints = computeSimulation(portfolio, period, periodMonths, transactions);
-    }
+  const { chartData, finalValues, hasCarteiraData } = unified;
 
-    // 2. Normalize benchmark data
-    const actualPeriodStart = getPeriodStartDate(period, periodMonths, transactions);
-    const normalizedBenchmarks = normalizeBenchmarks(benchmarkRawData, actualPeriodStart);
+  const isLoading = portfolioLoading || txLoading;
+  const hasRealData = transactions.length > 0;
+  const periodMonths = getPeriodMonths(period, transactions);
 
-    // 3. Build unified timeline (monthly)
-    const dateFormat = (d: Date) => d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
-    const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
-    // Index carteira points by month
-    const carteiraByMonth: Record<string, number> = {};
-    carteiraPoints.forEach(p => { carteiraByMonth[dateKey(p.date)] = p.cumulativeReturn; });
-
-    // Index benchmark points by month (use last value in each month)
-    const benchmarkByMonth: Record<string, Record<string, number>> = {};
-    for (const [code, points] of Object.entries(normalizedBenchmarks)) {
-      benchmarkByMonth[code] = {};
-      for (const p of points) {
-        const mk = p.date.slice(0, 7); // YYYY-MM
-        benchmarkByMonth[code][mk] = p.pctReturn; // last value wins
-      }
-    }
-
-    // Build timeline from period start to now
-    const now = new Date();
-    const start = new Date(actualPeriodStart.getFullYear(), actualPeriodStart.getMonth(), 1);
-    const months: { date: Date; mk: string; label: string }[] = [];
-    const cur = new Date(start);
-    while (cur <= now) {
-      months.push({
-        date: new Date(cur),
-        mk: dateKey(cur),
-        label: dateFormat(cur),
-      });
-      cur.setMonth(cur.getMonth() + 1);
-    }
-    // Add current month if not already there
-    const nowMk = dateKey(now);
-    if (!months.find(m => m.mk === nowMk)) {
-      months.push({ date: now, mk: nowMk, label: dateFormat(now) });
-    }
-
-    // Helper: forward-fill benchmark values for months with no data
-    const forwardFill = (benchCode: string): Record<string, number> => {
-      const raw = benchmarkByMonth[benchCode] ?? {};
-      const filled: Record<string, number> = {};
-      let lastVal = 0; // Start at 0%
-      for (const m of months) {
-        if (raw[m.mk] !== undefined) {
-          lastVal = raw[m.mk];
-        }
-        filled[m.mk] = lastVal;
-      }
-      return filled;
-    };
-
-    // Build filled series for each benchmark
-    const filledCdi = forwardFill('CDI');
-    const filledIpca = forwardFill('IPCA');
-    const filledIbov = forwardFill('IBOV');
-    const filledIfix = forwardFill('IFIX');
-
-    return months.map(m => {
-      const carteiraVal = carteiraByMonth[m.mk];
-      return {
-        date: m.label,
-        carteira: carteiraVal !== undefined ? +carteiraVal.toFixed(2) : undefined,
-        cdi: filledCdi[m.mk] !== undefined ? +filledCdi[m.mk].toFixed(2) : undefined,
-        ipca: filledIpca[m.mk] !== undefined ? +filledIpca[m.mk].toFixed(2) : undefined,
-        ibov: filledIbov[m.mk] !== undefined ? +filledIbov[m.mk].toFixed(2) : undefined,
-        ifix: filledIfix[m.mk] !== undefined ? +filledIfix[m.mk].toFixed(2) : undefined,
-      };
-    });
-  }, [mode, period, periodMonths, transactions, portfolio, benchmarkRawData]);
+  // Summary rows derived from finalValues (same source as chart)
+  const carteiraReturn = finalValues.carteira ?? 0;
+  const summaryRows = useMemo(() => {
+    return ALL_SERIES
+      .filter(s => visibleSeries.includes(s.key))
+      .map(s => {
+        const ret = finalValues[s.key];
+        if (ret === undefined) return null;
+        const diff = s.key === 'carteira' ? null : ret - carteiraReturn;
+        const effectiveMonths = periodMonths || 12;
+        const annualized = effectiveMonths > 0
+          ? (Math.pow(1 + ret / 100, 12 / effectiveMonths) - 1) * 100
+          : ret;
+        return { ...s, ret, annualized, diff };
+      })
+      .filter(Boolean) as (SeriesDef & { ret: number; annualized: number; diff: number | null })[];
+  }, [finalValues, visibleSeries, carteiraReturn, periodMonths]);
 
   const toggleSeries = useCallback((key: SeriesKey) => {
     setVisibleSeries(prev => {
@@ -567,26 +544,9 @@ const Rentabilidade = () => {
   const clearSelection = () => setVisibleSeries(['carteira']);
   const applyPreset = (keys: SeriesKey[]) => setVisibleSeries(keys);
 
-  // Performance summary
-  const lastPoint = chartData[chartData.length - 1];
-  const carteiraReturn = lastPoint?.carteira ?? 0;
-
-  const summaryRows = useMemo(() => {
-    if (!lastPoint) return [];
-    return ALL_SERIES
-      .filter(s => visibleSeries.includes(s.key))
-      .map(s => {
-        const ret = (lastPoint as any)[s.key] as number | undefined;
-        if (ret === undefined) return null;
-        const diff = s.key === 'carteira' ? null : ret - carteiraReturn;
-        const effectiveMonths = periodMonths || 12;
-        const annualized = effectiveMonths > 0 ? (Math.pow(1 + ret / 100, 12 / effectiveMonths) - 1) * 100 : ret;
-        return { ...s, ret, annualized, diff };
-      })
-      .filter(Boolean) as (SeriesDef & { ret: number; annualized: number; diff: number | null })[];
-  }, [lastPoint, visibleSeries, carteiraReturn, periodMonths]);
-
-  const hasRealData = transactions.length > 0;
+  // ─── Determine UI state ───────────────────────────────────
+  const showEmptyState = !isLoading && mode === 'real' && !hasRealData;
+  const showChart = !isLoading && !showEmptyState && chartData.length > 1;
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -595,8 +555,8 @@ const Rentabilidade = () => {
         <p className="text-muted-foreground text-xs font-medium mb-2">{label}</p>
         <div className="space-y-1">
           {payload
-            .filter((e: any) => e.value !== undefined)
-            .sort((a: any, b: any) => b.value - a.value)
+            .filter((e: any) => e.value !== undefined && e.value !== null)
+            .sort((a: any, b: any) => (b.value ?? 0) - (a.value ?? 0))
             .map((entry: any) => {
               const def = ALL_SERIES.find(s => s.key === entry.dataKey);
               return (
@@ -606,7 +566,7 @@ const Rentabilidade = () => {
                     <span className="text-foreground">{def?.label ?? entry.dataKey}</span>
                   </div>
                   <span className="font-mono font-medium" style={{ color: entry.color }}>
-                    {entry.value >= 0 ? '+' : ''}{entry.value.toFixed(2)}%
+                    {entry.value >= 0 ? '+' : ''}{Number(entry.value).toFixed(2)}%
                   </span>
                 </div>
               );
@@ -749,7 +709,7 @@ const Rentabilidade = () => {
         </div>
       </div>
 
-      {/* Mode badge */}
+      {/* Mode info badge */}
       <div className="flex items-center gap-2">
         <div className={`inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border ${
           mode === 'real'
@@ -766,179 +726,207 @@ const Rentabilidade = () => {
         </div>
       </div>
 
+      {/* Loading state */}
+      {isLoading && (
+        <Card>
+          <CardContent className="py-8 space-y-4">
+            <Skeleton className="h-[420px] w-full" />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty state */}
+      {showEmptyState && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Activity className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <h3 className="text-lg font-semibold mb-1">Nenhum lançamento encontrado</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              No modo Real, a rentabilidade é calculada com base nas suas operações (compras e vendas).
+              Registre ao menos um aporte para começar.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Chart */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            Rentabilidade Acumulada (%)
-            <Badge variant="outline" className="text-[10px] ml-2">
-              {mode === 'real' ? 'REAL' : 'SIMULAÇÃO'}
-            </Badge>
-            {benchmarkLoading && (
-              <Badge variant="outline" className="text-[10px] ml-1 animate-pulse">
-                Carregando…
+      {showChart && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              Rentabilidade Acumulada (%)
+              <Badge variant="outline" className="text-[10px] ml-2">
+                {mode === 'real' ? 'REAL' : 'SIMULAÇÃO'}
               </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[420px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={50}
-                />
-                <RTooltip content={<CustomTooltip />} />
-                {ALL_SERIES.filter(s => visibleSeries.includes(s.key)).map(s => (
-                  <Line
-                    key={s.key}
-                    type="monotone"
-                    dataKey={s.key}
-                    stroke={s.color}
-                    strokeWidth={hoveredSeries === s.key ? 3 : s.key === 'carteira' ? 2.5 : 1.5}
-                    dot={false}
-                    opacity={hoveredSeries && hoveredSeries !== s.key ? 0.3 : 1}
-                    connectNulls={false}
-                    strokeDasharray={mode === 'simulacao' && s.key === 'carteira' ? '8 4' : undefined}
+              {benchmarkLoading && (
+                <Badge variant="outline" className="text-[10px] ml-1 animate-pulse">
+                  Carregando…
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[420px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
                   />
-                ))}
-                <Legend
-                  content={({ payload }) => (
-                    <div className="flex flex-wrap justify-center gap-3 mt-3">
-                      {payload?.map((entry: any) => {
-                        const def = ALL_SERIES.find(s => s.key === entry.dataKey);
-                        if (!def) return null;
-                        return (
-                          <button
-                            key={def.key}
-                            className={`flex items-center gap-1.5 text-xs transition-all cursor-pointer hover:opacity-100 ${
-                              visibleSeries.includes(def.key) ? 'opacity-100' : 'opacity-40'
-                            }`}
-                            onClick={() => toggleSeries(def.key)}
-                            onMouseEnter={() => setHoveredSeries(def.key)}
-                            onMouseLeave={() => setHoveredSeries(null)}
-                          >
-                            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: def.color }} />
-                            <span className="text-muted-foreground">{def.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+                  <YAxis
+                    tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={55}
+                  />
+                  <RTooltip content={<CustomTooltip />} />
+                  {ALL_SERIES.filter(s => visibleSeries.includes(s.key)).map(s => (
+                    <Line
+                      key={s.key}
+                      type="monotone"
+                      dataKey={s.key}
+                      stroke={s.color}
+                      strokeWidth={hoveredSeries === s.key ? 3 : s.key === 'carteira' ? 2.5 : 1.5}
+                      dot={false}
+                      opacity={hoveredSeries && hoveredSeries !== s.key ? 0.3 : 1}
+                      connectNulls
+                      strokeDasharray={mode === 'simulacao' && s.key === 'carteira' ? '8 4' : undefined}
+                    />
+                  ))}
+                  <Legend
+                    content={({ payload }) => (
+                      <div className="flex flex-wrap justify-center gap-3 mt-3">
+                        {payload?.map((entry: any) => {
+                          const def = ALL_SERIES.find(s => s.key === entry.dataKey);
+                          if (!def) return null;
+                          return (
+                            <button
+                              key={def.key}
+                              className={`flex items-center gap-1.5 text-xs transition-all cursor-pointer hover:opacity-100 ${
+                                visibleSeries.includes(def.key) ? 'opacity-100' : 'opacity-40'
+                              }`}
+                              onClick={() => toggleSeries(def.key)}
+                              onMouseEnter={() => setHoveredSeries(def.key)}
+                              onMouseLeave={() => setHoveredSeries(null)}
+                            >
+                              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: def.color }} />
+                              <span className="text-muted-foreground">{def.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Performance summary table */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            Resumo de Performance
-            <Badge variant="outline" className="text-[10px] ml-1">
-              {mode === 'real' ? 'REAL' : 'SIMULAÇÃO'}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Série</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">No período</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Anualizada</th>
-                  <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">vs. Carteira</th>
-                  <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summaryRows.map(row => (
-                  <tr
-                    key={row.key}
-                    className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-                    onMouseEnter={() => setHoveredSeries(row.key)}
-                    onMouseLeave={() => setHoveredSeries(null)}
-                  >
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: row.color }} />
-                        <span className="font-medium">{row.label}</span>
-                      </div>
-                    </td>
-                    <td className="text-right py-2.5 px-3 font-mono">
-                      <span className={row.ret >= 0 ? 'text-[hsl(var(--positive))]' : 'text-[hsl(var(--negative))]'}>
-                        {row.ret >= 0 ? '+' : ''}{row.ret.toFixed(2)}%
-                      </span>
-                    </td>
-                    <td className="text-right py-2.5 px-3 font-mono text-muted-foreground">
-                      {row.annualized >= 0 ? '+' : ''}{row.annualized.toFixed(2)}%
-                    </td>
-                    <td className="text-right py-2.5 px-3 font-mono">
-                      {row.diff === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span className={row.diff <= 0 ? 'text-[hsl(var(--positive))]' : 'text-[hsl(var(--negative))]'}>
-                          {row.diff <= 0 ? '+' : ''}{(-row.diff).toFixed(2)} p.p.
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center py-2.5 px-3">
-                      {row.diff === null ? (
-                        <Badge variant="outline" className="text-[10px]">REF</Badge>
-                      ) : row.diff <= 0 ? (
-                        <Badge variant="outline" className="text-[10px] border-[hsl(var(--positive))]/40 bg-[hsl(var(--positive))]/10 text-[hsl(var(--positive))]">
-                          <ArrowUpRight className="h-3 w-3 mr-0.5" /> Acima
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] border-[hsl(var(--negative))]/40 bg-[hsl(var(--negative))]/10 text-[hsl(var(--negative))]">
-                          <ArrowDownRight className="h-3 w-3 mr-0.5" /> Abaixo
-                        </Badge>
-                      )}
-                    </td>
+      {showChart && summaryRows.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              Resumo de Performance
+              <Badge variant="outline" className="text-[10px] ml-1">
+                {mode === 'real' ? 'REAL' : 'SIMULAÇÃO'}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Série</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">No período</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Anualizada</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">vs. Carteira</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Comparison highlights */}
-          {summaryRows.filter(r => r.diff !== null).length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {summaryRows.filter(r => r.diff !== null).map(r => {
-                const above = (r.diff ?? 0) <= 0;
-                const pp = Math.abs(r.diff ?? 0).toFixed(2);
-                return (
-                  <div
-                    key={r.key}
-                    className={`text-xs px-3 py-1.5 rounded-lg border ${
-                      above
-                        ? 'border-[hsl(var(--positive))]/20 bg-[hsl(var(--positive))]/5 text-[hsl(var(--positive))]'
-                        : 'border-[hsl(var(--negative))]/20 bg-[hsl(var(--negative))]/5 text-[hsl(var(--negative))]'
-                    }`}
-                  >
-                    Carteira {above ? '+' : '-'}{pp} p.p. {above ? 'acima' : 'abaixo'} do {r.label}
-                  </div>
-                );
-              })}
+                </thead>
+                <tbody>
+                  {summaryRows.map(row => (
+                    <tr
+                      key={row.key}
+                      className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                      onMouseEnter={() => setHoveredSeries(row.key)}
+                      onMouseLeave={() => setHoveredSeries(null)}
+                    >
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: row.color }} />
+                          <span className="font-medium">{row.label}</span>
+                        </div>
+                      </td>
+                      <td className="text-right py-2.5 px-3 font-mono">
+                        <span className={row.ret >= 0 ? 'text-[hsl(var(--positive))]' : 'text-[hsl(var(--negative))]'}>
+                          {row.ret >= 0 ? '+' : ''}{row.ret.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="text-right py-2.5 px-3 font-mono text-muted-foreground">
+                        {row.annualized >= 0 ? '+' : ''}{row.annualized.toFixed(2)}%
+                      </td>
+                      <td className="text-right py-2.5 px-3 font-mono">
+                        {row.diff === null ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span className={row.diff <= 0 ? 'text-[hsl(var(--positive))]' : 'text-[hsl(var(--negative))]'}>
+                            {row.diff <= 0 ? '+' : ''}{(-row.diff).toFixed(2)} p.p.
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-center py-2.5 px-3">
+                        {row.diff === null ? (
+                          <Badge variant="outline" className="text-[10px]">REF</Badge>
+                        ) : row.diff <= 0 ? (
+                          <Badge variant="outline" className="text-[10px] border-[hsl(var(--positive))]/40 bg-[hsl(var(--positive))]/10 text-[hsl(var(--positive))]">
+                            <ArrowUpRight className="h-3 w-3 mr-0.5" /> Acima
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] border-[hsl(var(--negative))]/40 bg-[hsl(var(--negative))]/10 text-[hsl(var(--negative))]">
+                            <ArrowDownRight className="h-3 w-3 mr-0.5" /> Abaixo
+                          </Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {/* Comparison highlights */}
+            {summaryRows.filter(r => r.diff !== null).length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {summaryRows.filter(r => r.diff !== null).map(r => {
+                  const above = (r.diff ?? 0) <= 0;
+                  const pp = Math.abs(r.diff ?? 0).toFixed(2);
+                  return (
+                    <div
+                      key={r.key}
+                      className={`text-xs px-3 py-1.5 rounded-lg border ${
+                        above
+                          ? 'border-[hsl(var(--positive))]/20 bg-[hsl(var(--positive))]/5 text-[hsl(var(--positive))]'
+                          : 'border-[hsl(var(--negative))]/20 bg-[hsl(var(--negative))]/5 text-[hsl(var(--negative))]'
+                      }`}
+                    >
+                      Carteira {above ? '+' : '-'}{pp} p.p. {above ? 'acima' : 'abaixo'} do {r.label}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
