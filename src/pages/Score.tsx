@@ -645,15 +645,15 @@ const Score = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Brain className="h-6 w-6 text-primary" /> Score Interno
+          <p className="kpi-label mb-1">Análise Quantitativa</p>
+          <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+            Score Interno
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Análise quantitativa de ações (0–100) • Cobertura: {selectedScore ? Math.round(selectedScore.coverage * 100) : 0}%
-            • Confiança: {selectedScore ? Math.round(selectedScore.confidence * 100) : 0}%
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Cobertura: {selectedScore ? Math.round(selectedScore.coverage * 100) : 0}% • Confiança: {selectedScore ? Math.round(selectedScore.confidence * 100) : 0}%
           </p>
         </div>
         <Button
