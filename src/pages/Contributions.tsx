@@ -149,7 +149,7 @@ const Contributions = () => {
   const topAssetTicker = portfolio.find(p => p.id === topAssetId)?.ticker ?? '—';
 
   // ============================================================
-  // SUGGESTION ENGINE
+  // SUGGESTION ENGINE — Round-robin with diversification
   // ============================================================
   const suggestions = useMemo((): SuggestionItem[] => {
     if (aporteValue <= 0 || portfolio.length === 0) return [];
@@ -157,6 +157,7 @@ const Contributions = () => {
     const totalWithAporte = totalPortfolio + aporteValue;
     const activeAssets = portfolio.filter(p => p.quantity > 0 || p.active);
 
+    // --- Manual mode (unchanged) ---
     if (mode === 'manual') {
       return activeAssets.map(asset => {
         const price = asset.last_price ?? asset.avg_price;
@@ -166,23 +167,18 @@ const Contributions = () => {
         const remainder = amt - qty * price;
         const projectedVal = currentVal + qty * price;
         const cls = classes.find(c => c.id === asset.class_id);
-
         return {
-          asset,
-          className: cls?.name ?? '—',
-          sector: asset.sector ?? '—',
+          asset, className: cls?.name ?? '—', sector: asset.sector ?? '—',
           score: getAssetScore(asset),
           pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
           pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
-          price,
-          suggestedAmount: qty * price,
-          suggestedQty: qty,
-          remainder,
+          price, suggestedAmount: qty * price, suggestedQty: qty, remainder,
           reason: amt > 0 ? 'Alocação manual' : '—',
         };
       }).filter(s => s.suggestedAmount > 0 || manualAmounts[s.asset.id]);
     }
 
+    // --- Classe Primeiro mode (unchanged) ---
     if (mode === 'classe_primeiro') {
       const results: SuggestionItem[] = [];
       for (const [classId, classAmt] of Object.entries(classAmounts)) {
@@ -190,10 +186,8 @@ const Contributions = () => {
         const classAssets = activeAssets
           .filter(a => a.class_id === classId)
           .sort((a, b) => getAssetScore(b) - getAssetScore(a));
-
         if (classAssets.length === 0) continue;
         const perAsset = classAmt / classAssets.length;
-
         for (const asset of classAssets) {
           const price = asset.last_price ?? asset.avg_price;
           const currentVal = asset.quantity * price;
@@ -201,18 +195,12 @@ const Contributions = () => {
           const remainder = perAsset - qty * price;
           const projectedVal = currentVal + qty * price;
           const cls = classes.find(c => c.id === asset.class_id);
-
           results.push({
-            asset,
-            className: cls?.name ?? '—',
-            sector: asset.sector ?? '—',
+            asset, className: cls?.name ?? '—', sector: asset.sector ?? '—',
             score: getAssetScore(asset),
             pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
             pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
-            price,
-            suggestedAmount: qty * price,
-            suggestedQty: qty,
-            remainder,
+            price, suggestedAmount: qty * price, suggestedQty: qty, remainder,
             reason: 'Distribuição por classe',
           });
         }
@@ -220,9 +208,15 @@ const Contributions = () => {
       return results;
     }
 
-    // Rebalanceamento or Score + Rebalanceamento
+    // ==================================================================
+    // Rebalanceamento / Score + Reb. — ROUND-ROBIN DIVERSIFIED ALGORITHM
+    // ==================================================================
+    const MAX_PCT_PER_ASSET = 0.35; // No single asset gets > 35% of contribution
+    const maxPerAsset = aporteValue * MAX_PCT_PER_ASSET;
+
     const activeAssetsPriced = activeAssets.filter(a => (a.last_price ?? a.avg_price) > 0);
 
+    // Build class data
     const classData = targets.map(target => {
       const cls = classes.find(c => c.id === target.class_id);
       const positions = activeAssetsPriced.filter(p => p.class_id === target.class_id);
@@ -232,128 +226,191 @@ const Contributions = () => {
       return { classId: target.class_id, className: cls?.name ?? '?', positions, currentValue, idealValue, deficit, targetPct: target.target_percent };
     });
 
-    // Sort: classes with deficit first (largest deficit first), then others by target weight
-    const sortedClasses = [...classData].sort((a, b) => {
-      if (a.deficit > 0 && b.deficit > 0) return b.deficit - a.deficit;
-      if (a.deficit > 0) return -1;
-      if (b.deficit > 0) return 1;
-      return b.targetPct - a.targetPct;
-    });
+    const classDeficitMap = new Map(classData.map(cd => [cd.classId, cd]));
 
-    let remaining = aporteValue;
-    const results: SuggestionItem[] = [];
+    // ---- Compute priority score per asset ----
+    type AssetPriority = {
+      asset: PortfolioAsset;
+      price: number;
+      priority: number;
+      classDeficit: number;
+      pctCurrent: number;
+      score: number;
+      reasons: string[];
+    };
 
-    // Phase 1: allocate to classes with deficit
-    const classesWithDeficit = sortedClasses.filter(cd => cd.deficit > 0);
-    
-    for (const cd of (classesWithDeficit.length > 0 ? classesWithDeficit : sortedClasses)) {
-      if (remaining <= 0) break;
-      // If class has deficit, cap at deficit; otherwise allocate proportionally
-      const classAlloc = cd.deficit > 0
-        ? Math.min(cd.deficit, remaining)
-        : Math.min(remaining, aporteValue * (cd.targetPct / 100));
+    const priorities: AssetPriority[] = [];
+    const sectorCounts: Record<string, number> = {}; // used later for diversity
 
-      let sortedAssets = [...cd.positions];
-      if (mode === 'score_rebalanceamento') {
-        sortedAssets.sort((a, b) => {
-          const sa = getAssetScore(a);
-          const sb = getAssetScore(b);
-          const concPenA = totalPortfolio > 0 ? (a.quantity * (a.last_price ?? a.avg_price)) / totalPortfolio : 0;
-          const concPenB = totalPortfolio > 0 ? (b.quantity * (b.last_price ?? b.avg_price)) / totalPortfolio : 0;
-          return (sb - concPenB * 20) - (sa - concPenA * 20);
-        });
-      } else {
-        // Sort by price ascending so cheapest assets get tried first for small values
-        sortedAssets.sort((a, b) => (a.last_price ?? a.avg_price) - (b.last_price ?? b.avg_price));
+    for (const asset of activeAssetsPriced) {
+      const price = asset.last_price ?? asset.avg_price;
+      const currentVal = asset.quantity * price;
+      const pctCurrent = totalPortfolio > 0 ? currentVal / totalPortfolio : 0;
+      const assetScore = getAssetScore(asset);
+      const cd = classDeficitMap.get(asset.class_id);
+      const classDeficit = cd ? cd.deficit : 0;
+      const classTarget = cd ? cd.targetPct : 0;
+      const reasons: string[] = [];
+
+      // Priority components (0-100 scale each, combined)
+      let p = 0;
+
+      // 1. Class rebalancing need (biggest driver: 0-40 pts)
+      if (classDeficit > 0 && totalWithAporte > 0) {
+        const deficitPct = classDeficit / totalWithAporte;
+        p += Math.min(deficitPct * 400, 40); // up to 40 pts
+        reasons.push('Classe abaixo do alvo');
+      } else if (classTarget > 0) {
+        p += classTarget * 0.1; // small boost for having a target
       }
 
-      if (sortedAssets.length === 0) continue;
+      // 2. Asset score (0-25 pts)
+      if (mode === 'score_rebalanceamento') {
+        p += (assetScore / 100) * 25;
+        if (assetScore >= 70) reasons.push('Score forte');
+      } else {
+        p += (assetScore / 100) * 10;
+      }
 
-      let classRemaining = classAlloc;
-      for (let i = 0; i < sortedAssets.length && classRemaining > 0; i++) {
-        const asset = sortedAssets[i];
-        const price = asset.last_price ?? asset.avg_price;
-        if (price <= 0) continue;
+      // 3. Low current weight — favor underrepresented assets (0-20 pts)
+      if (pctCurrent < 0.02) {
+        p += 20;
+        reasons.push('Baixa representação na carteira');
+      } else if (pctCurrent < 0.05) {
+        p += 10;
+      }
 
-        const qty = Math.floor(classRemaining / price);
-        if (qty <= 0) continue;
+      // 4. Penalty for high concentration (reduce up to -15 pts)
+      if (pctCurrent > 0.15) {
+        p -= 15;
+        reasons.push('Já muito concentrado');
+      } else if (pctCurrent > 0.10) {
+        p -= 8;
+      }
 
-        const actualAmt = qty * price;
-        const currentVal = asset.quantity * price;
-        const projectedVal = currentVal + actualAmt;
-        const cls = classes.find(c => c.id === asset.class_id);
+      // 5. Sector diversity bonus (added during round-robin, not here)
+      // We just pre-count sectors
+      const sector = asset.sector ?? 'Outros';
+      sectorCounts[sector] = (sectorCounts[sector] ?? 0) + 1;
 
-        let reason = 'Abaixo do alvo da classe';
-        if (cd.deficit <= 0) reason = 'Distribuição proporcional';
-        if (mode === 'score_rebalanceamento' && i === 0) reason = 'Melhor score da classe';
-        const pctP = totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0;
-        if (pctP < 3) reason = 'Baixa concentração';
+      priorities.push({ asset, price, priority: p, classDeficit, pctCurrent, score: assetScore, reasons });
+    }
 
-        results.push({
-          asset,
-          className: cls?.name ?? '—',
-          sector: asset.sector ?? '—',
-          score: getAssetScore(asset),
-          pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
-          pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
-          price,
-          suggestedAmount: actualAmt,
-          suggestedQty: qty,
-          remainder: classRemaining - actualAmt,
-          reason,
-        });
+    // Sort by priority descending
+    priorities.sort((a, b) => b.priority - a.priority);
 
-        classRemaining -= actualAmt;
-        remaining -= actualAmt;
+    // ---- Round-robin allocation ----
+    const allocMap = new Map<string, { qty: number; amt: number; reasons: string[] }>();
+    let remaining = aporteValue;
+    const sectorsUsed = new Set<string>();
+
+    // Initialize alloc map
+    for (const p of priorities) {
+      allocMap.set(p.asset.id, { qty: 0, amt: 0, reasons: [...p.reasons] });
+    }
+
+    // Multiple rounds: each round tries to buy 1 unit of each eligible asset
+    let changed = true;
+    while (changed && remaining > 0.01) {
+      changed = false;
+
+      for (const ap of priorities) {
+        if (remaining < ap.price) continue;
+
+        const alloc = allocMap.get(ap.asset.id)!;
+
+        // Check per-asset cap
+        if (alloc.amt + ap.price > maxPerAsset) continue;
+
+        // Sector diversity: if this asset's sector already has units and
+        // there are other sectors with 0 units and affordable assets, skip for now
+        // (soft rule — only in first round when we haven't allocated much yet)
+        const sector = ap.asset.sector ?? 'Outros';
+        if (alloc.qty === 0 && sectorsUsed.has(sector)) {
+          // Check if there are unallocated assets from different sectors that are affordable
+          const hasAlternative = priorities.some(other => {
+            const otherSector = other.asset.sector ?? 'Outros';
+            const otherAlloc = allocMap.get(other.asset.id)!;
+            return otherSector !== sector
+              && !sectorsUsed.has(otherSector)
+              && otherAlloc.qty === 0
+              && other.price <= remaining
+              && other.priority > ap.priority * 0.5; // only if reasonably good
+          });
+          if (hasAlternative) continue; // skip, let the other sector get a chance
+        }
+
+        // Buy 1 unit
+        alloc.qty += 1;
+        alloc.amt += ap.price;
+        remaining -= ap.price;
+        sectorsUsed.add(sector);
+        changed = true;
+
+        // Add sector diversity reason on first allocation
+        if (alloc.qty === 1 && !alloc.reasons.includes('Diversificação setorial')) {
+          const otherSectors = [...sectorsUsed].filter(s => s !== sector);
+          if (otherSectors.length > 0) {
+            alloc.reasons.push('Diversificação setorial');
+          }
+        }
       }
     }
 
-    // Phase 2: if we still have remaining and didn't allocate anything,
-    // try ALL eligible assets sorted by price ascending (greedy fallback)
-    if (remaining > 0 && results.length === 0) {
-      const allByPrice = activeAssetsPriced
-        .slice()
-        .sort((a, b) => (a.last_price ?? a.avg_price) - (b.last_price ?? b.avg_price));
-      
-      for (const asset of allByPrice) {
-        if (remaining <= 0) break;
-        const price = asset.last_price ?? asset.avg_price;
-        const qty = Math.floor(remaining / price);
-        if (qty <= 0) continue;
+    // Build results
+    const results: SuggestionItem[] = [];
+    for (const ap of priorities) {
+      const alloc = allocMap.get(ap.asset.id)!;
+      if (alloc.qty === 0) continue;
 
-        const actualAmt = qty * price;
-        const currentVal = asset.quantity * price;
-        const projectedVal = currentVal + actualAmt;
-        const cls = classes.find(c => c.id === asset.class_id);
+      const currentVal = ap.asset.quantity * ap.price;
+      const projectedVal = currentVal + alloc.amt;
+      const cls = classes.find(c => c.id === ap.asset.class_id);
 
-        results.push({
-          asset,
-          className: cls?.name ?? '—',
-          sector: asset.sector ?? '—',
-          score: getAssetScore(asset),
-          pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
-          pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
-          price,
-          suggestedAmount: actualAmt,
-          suggestedQty: qty,
-          remainder: remaining - actualAmt,
-          reason: 'Melhor uso do valor disponível',
-        });
+      // Build smart reason
+      let reason = alloc.reasons.filter(r => r !== '').slice(0, 2).join(' + ') || 'Melhor alocação disponível';
+      if (alloc.amt / aporteValue > 0.25) reason += ' (posição reforçada)';
 
-        remaining -= actualAmt;
-      }
+      results.push({
+        asset: ap.asset,
+        className: cls?.name ?? '—',
+        sector: ap.asset.sector ?? '—',
+        score: ap.score,
+        pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
+        pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
+        price: ap.price,
+        suggestedAmount: alloc.amt,
+        suggestedQty: alloc.qty,
+        remainder: 0,
+        reason,
+      });
+    }
+
+    // Calculate remainder per item (spread evenly for display)
+    const totalAllocated = results.reduce((s, r) => s + r.suggestedAmount, 0);
+    const finalRemainder = aporteValue - totalAllocated;
+    if (results.length > 0) {
+      results[results.length - 1].remainder = finalRemainder;
     }
 
     // Debug logging
+    const topAssetPct = results.length > 0
+      ? (Math.max(...results.map(r => r.suggestedAmount)) / aporteValue * 100).toFixed(1)
+      : '0';
     console.log('[Aportes Debug]', {
-      aporteRaw,
-      aporteParsed: aporteValue,
-      mode,
+      aporteRaw, aporteParsed: aporteValue, mode,
       eligibleAssets: activeAssetsPriced.length,
-      classesWithDeficit: classesWithDeficit.length,
-      totalAllocated: results.reduce((s, r) => s + r.suggestedAmount, 0),
-      sobra: remaining,
-      suggestions: results.map(r => ({ ticker: r.asset.ticker, qty: r.suggestedQty, amt: r.suggestedAmount, price: r.price })),
+      assetsWithPriority: priorities.map(p => ({
+        ticker: p.asset.ticker, sector: p.asset.sector, score: p.score,
+        priority: p.priority.toFixed(1), pctCurrent: (p.pctCurrent * 100).toFixed(2),
+        classDeficit: p.classDeficit.toFixed(0),
+      })),
+      suggestionsCount: results.length,
+      topAssetConcentration: topAssetPct + '%',
+      totalAllocated, sobra: finalRemainder,
+      results: results.map(r => ({
+        ticker: r.asset.ticker, qty: r.suggestedQty, amt: r.suggestedAmount, reason: r.reason,
+      })),
     });
 
     return results;
