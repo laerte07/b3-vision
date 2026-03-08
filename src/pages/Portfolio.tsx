@@ -76,23 +76,89 @@ const Portfolio = () => {
 
   if (isLoading) return <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">Carregando...</div>;
 
+  // Mobile card view for each asset
+  const MobileAssetCard = ({ pos, classTotal }: { pos: PortfolioAsset; classTotal: number }) => {
+    const price = pos.last_price ?? pos.avg_price;
+    const total = pos.quantity * price;
+    const pctPortfolio = totalPortfolio > 0 ? (total / totalPortfolio) * 100 : 0;
+    const gain = pos.avg_price > 0 ? ((price - pos.avg_price) / pos.avg_price) * 100 : 0;
+
+    return (
+      <div className="glass-card p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-semibold text-foreground text-sm">{pos.ticker}</span>
+            <span className="text-muted-foreground text-xs truncate max-w-[120px]">{pos.name || ''}</span>
+          </div>
+          <div className="flex gap-0.5">
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => openEdit(pos)}><Pencil className="h-3 w-3" /></Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setFundAsset(pos)}><BarChart3 className="h-3 w-3" /></Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70"><Trash2 className="h-3 w-3" /></Button></AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir {pos.ticker}?</AlertDialogTitle>
+                  <AlertDialogDescription>Esta ação é irreversível.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => deleteAsset.mutate(pos.id)}>Excluir</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div>
+            <span className="text-muted-foreground block">Qtd</span>
+            <span className="font-mono">{pos.quantity}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block">PM</span>
+            <span className="font-mono">{formatBRL(pos.avg_price)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block">Atual</span>
+            <span className={cn('font-mono', gain >= 0 ? 'text-positive' : 'text-negative')}>{formatBRL(price)}</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between text-xs pt-1 border-t border-border/30">
+          <div>
+            <span className="text-muted-foreground">Total: </span>
+            <span className="font-mono font-medium">{formatBRL(total)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Cart: </span>
+            <span className="font-mono">{formatPct(pctPortfolio)}</span>
+          </div>
+          {pos.effective_dy != null && (
+            <div>
+              <span className="text-muted-foreground">DY: </span>
+              <span className="font-mono">{formatPct(pos.effective_dy)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <p className="kpi-label mb-1">Posições</p>
-          <h1 className="text-xl font-semibold tracking-tight">Carteira</h1>
+          <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Carteira</h1>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-2 text-xs h-8" onClick={() => refreshMarket.mutate()} disabled={refreshMarket.isPending}>
             <RefreshCw className={cn('h-3.5 w-3.5', refreshMarket.isPending && 'animate-spin')} />
-            Atualizar
+            <span className="hidden sm:inline">Atualizar</span>
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-2 h-8 text-xs" onClick={resetForm}><Plus className="h-3.5 w-3.5" /> Novo Ativo</Button>
+              <Button size="sm" className="gap-2 h-8 text-xs" onClick={resetForm}><Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Novo</span> Ativo</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
               <DialogHeader><DialogTitle>Adicionar Ativo</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-2">
                 <div className="space-y-1"><Label className="text-xs">Ticker</Label><Input value={form.ticker} onChange={e => setForm({ ...form, ticker: e.target.value })} placeholder="Ex: PETR4" className="font-mono" /></div>
@@ -138,20 +204,32 @@ const Portfolio = () => {
 
             return (
               <TabsContent key={cls.id} value={cls.id}>
-                <div className="glass-card overflow-hidden">
+                {/* Mobile: card list */}
+                <div className="md:hidden space-y-2">
+                  {positions.map(pos => (
+                    <MobileAssetCard key={pos.id} pos={pos} classTotal={classTotal} />
+                  ))}
+                  <div className="glass-card p-3 flex justify-between items-center text-xs font-medium">
+                    <span className="text-muted-foreground uppercase tracking-wider">Total</span>
+                    <span className="font-mono">{formatBRL(classTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Desktop: table */}
+                <div className="hidden md:block glass-card overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-b border-border/40">
                         <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Ticker</TableHead>
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Nome</TableHead>
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Nome</TableHead>
                         <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Qtd</TableHead>
-                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">PM</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">PM</TableHead>
                         <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Atual</TableHead>
                         <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Total</TableHead>
-                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">% Classe</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden xl:table-cell">% Classe</TableHead>
                         <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">% Cart.</TableHead>
-                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider">DY</TableHead>
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</TableHead>
+                        <TableHead className="text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden xl:table-cell">DY</TableHead>
+                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Status</TableHead>
                         <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider w-20">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -167,17 +245,17 @@ const Portfolio = () => {
                         return (
                           <TableRow key={pos.id} className="data-row">
                             <TableCell className="font-mono font-medium text-foreground">{pos.ticker}</TableCell>
-                            <TableCell className="text-muted-foreground text-xs">{pos.name || '—'}</TableCell>
+                            <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">{pos.name || '—'}</TableCell>
                             <TableCell className="text-right font-mono text-sm">{pos.quantity}</TableCell>
-                            <TableCell className="text-right font-mono text-sm text-muted-foreground">{formatBRL(pos.avg_price)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm text-muted-foreground hidden lg:table-cell">{formatBRL(pos.avg_price)}</TableCell>
                             <TableCell className="text-right font-mono text-sm">
                               <span className={gain >= 0 ? 'text-positive' : 'text-negative'}>{formatBRL(price)}</span>
                             </TableCell>
                             <TableCell className="text-right font-mono text-sm font-medium">{formatBRL(total)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{formatPct(pctClass)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs hidden xl:table-cell">{formatPct(pctClass)}</TableCell>
                             <TableCell className="text-right font-mono text-xs">{formatPct(pctPortfolio)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
-                            <TableCell>
+                            <TableCell className="text-right font-mono text-xs hidden xl:table-cell">{pos.effective_dy != null ? formatPct(pos.effective_dy) : '—'}</TableCell>
+                            <TableCell className="hidden lg:table-cell">
                               <TooltipProvider delayDuration={200}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -217,11 +295,17 @@ const Portfolio = () => {
                         );
                       })}
                       <TableRow className="bg-muted/20 font-medium">
-                        <TableCell colSpan={5} className="text-xs text-muted-foreground uppercase tracking-wider">Total</TableCell>
+                        <TableCell colSpan={2} className="text-xs text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Total</TableCell>
+                        <TableCell className="text-xs text-muted-foreground uppercase tracking-wider lg:hidden">Total</TableCell>
+                        <TableCell className="text-right font-mono text-sm hidden lg:table-cell" />
+                        <TableCell className="text-right font-mono text-sm hidden lg:table-cell" />
+                        <TableCell className="text-right font-mono text-sm" />
                         <TableCell className="text-right font-mono text-sm">{formatBRL(classTotal)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">100%</TableCell>
+                        <TableCell className="text-right font-mono text-xs hidden xl:table-cell">100%</TableCell>
                         <TableCell className="text-right font-mono text-xs">{totalPortfolio > 0 ? formatPct((classTotal / totalPortfolio) * 100) : '—'}</TableCell>
-                        <TableCell colSpan={3} />
+                        <TableCell className="hidden xl:table-cell" />
+                        <TableCell className="hidden lg:table-cell" />
+                        <TableCell />
                       </TableRow>
                     </TableBody>
                   </Table>
@@ -233,7 +317,7 @@ const Portfolio = () => {
       )}
 
       <Dialog open={!!editAsset} onOpenChange={open => { if (!open) setEditAsset(null); }}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-lg">
           <DialogHeader><DialogTitle>Editar {editAsset?.ticker}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
