@@ -79,6 +79,39 @@ export type Database = {
           },
         ]
       }
+      benchmark_history: {
+        Row: {
+          benchmark_code: string
+          benchmark_name: string
+          created_at: string
+          date: string
+          id: string
+          source: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          benchmark_code: string
+          benchmark_name: string
+          created_at?: string
+          date: string
+          id?: string
+          source: string
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          benchmark_code?: string
+          benchmark_name?: string
+          created_at?: string
+          date?: string
+          id?: string
+          source?: string
+          updated_at?: string
+          value?: number
+        }
+        Relationships: []
+      }
       class_targets: {
         Row: {
           class_id: string
