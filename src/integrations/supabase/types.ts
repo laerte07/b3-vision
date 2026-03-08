@@ -117,6 +117,81 @@ export type Database = {
           },
         ]
       }
+      contribution_items: {
+        Row: {
+          amount: number
+          asset_id: string
+          contribution_id: string
+          created_at: string
+          id: string
+          quantity: number
+          unit_price: number
+        }
+        Insert: {
+          amount?: number
+          asset_id: string
+          contribution_id: string
+          created_at?: string
+          id?: string
+          quantity?: number
+          unit_price?: number
+        }
+        Update: {
+          amount?: number
+          asset_id?: string
+          contribution_id?: string
+          created_at?: string
+          id?: string
+          quantity?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contribution_items_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contribution_items_contribution_id_fkey"
+            columns: ["contribution_id"]
+            isOneToOne: false
+            referencedRelation: "contributions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contributions: {
+        Row: {
+          allocation_mode: string
+          contribution_date: string
+          created_at: string
+          id: string
+          note: string | null
+          total_amount: number
+          user_id: string
+        }
+        Insert: {
+          allocation_mode?: string
+          contribution_date?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          total_amount?: number
+          user_id: string
+        }
+        Update: {
+          allocation_mode?: string
+          contribution_date?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          total_amount?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       correlation_matrix: {
         Row: {
           corr_value: number

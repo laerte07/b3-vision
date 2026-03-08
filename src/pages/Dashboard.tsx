@@ -15,6 +15,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePortfolio, useRefreshMarket } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
+import { useContributions } from '@/hooks/useContributions';
 import { formatBRL, formatPct } from '@/lib/format';
 
 const COLORS = [
@@ -31,6 +32,20 @@ const Dashboard = () => {
   const { data: classes = [] } = useAssetClasses();
   const { data: targets = [] } = useClassTargets();
   const refreshMarket = useRefreshMarket();
+  const { data: contributions = [] } = useContributions();
+
+  // Contribution stats
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthContribTotal = contributions
+    .filter(c => { const d = new Date(c.contribution_date); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; })
+    .reduce((s, c) => s + c.total_amount, 0);
+  const yearContribTotal = contributions
+    .filter(c => new Date(c.contribution_date).getFullYear() === currentYear)
+    .reduce((s, c) => s + c.total_amount, 0);
+  const yearContribCount = contributions.filter(c => new Date(c.contribution_date).getFullYear() === currentYear).length;
+  const avgMonthlyContrib = yearContribCount > 0 ? yearContribTotal / Math.max(1, currentMonth + 1) : 0;
 
   // --- Computed values (per class) ---
   const classValues = classes
@@ -173,6 +188,12 @@ const Dashboard = () => {
     { label: 'Risco Concentração', value: concentrationRisk.length > 0 ? `${concentrationRisk.length} ativo(s)` : 'OK' },
   ];
 
+  const contribCards = [
+    { label: 'Aporte do mês', value: formatBRL(monthContribTotal) },
+    { label: 'Aporte no ano', value: formatBRL(yearContribTotal) },
+    { label: 'Média mensal', value: formatBRL(avgMonthlyContrib) },
+  ];
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Carregando...</div>;
   }
@@ -247,6 +268,18 @@ const Dashboard = () => {
             <CardContent className="pt-6 text-center">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</p>
               <p className="text-lg font-bold mt-1 font-mono">{card.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Row 4: Contributions */}
+      <div className="grid grid-cols-3 gap-4">
+        {contribCards.map((card) => (
+          <Card key={card.label}>
+            <CardContent className="pt-6 text-center">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</p>
+              <p className="text-lg font-bold mt-1 font-mono text-primary">{card.value}</p>
             </CardContent>
           </Card>
         ))}
