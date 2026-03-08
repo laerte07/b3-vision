@@ -364,13 +364,21 @@ const Contributions = () => {
 
   // Minimum eligible price for current strategy
   const minEligiblePrice = useMemo(() => {
-    if (aporteValue <= 0 || portfolio.length === 0) return 0;
+    if (portfolio.length === 0) return 0;
     const activeAssets = portfolio.filter(p => p.quantity > 0 || p.active);
-    const prices = activeAssets
+    
+    let eligible = activeAssets;
+    // For rebalancing modes, filter to classes with targets
+    if (mode === 'rebalanceamento' || mode === 'score_rebalanceamento') {
+      const targetClassIds = new Set(targets.map(t => t.class_id));
+      eligible = activeAssets.filter(a => targetClassIds.has(a.class_id));
+    }
+    
+    const prices = eligible
       .map(a => a.last_price ?? a.avg_price)
       .filter(p => p > 0);
     return prices.length > 0 ? Math.min(...prices) : 0;
-  }, [aporteValue, portfolio]);
+  }, [portfolio, mode, targets]);
 
   // ============================================================
   // IMPACT PROJECTION
