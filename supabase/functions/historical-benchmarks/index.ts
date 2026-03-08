@@ -60,6 +60,32 @@ async function fetchBRAPIHistorical(
   return prices;
 }
 
+// Try ranges in order of preference (largest first), fallback to smaller if plan-limited
+const BRAPI_RANGES = ["5y", "3mo", "1mo"];
+
+async function fetchBRAPIWithFallback(
+  ticker: string,
+  token: string,
+): Promise<{ date: number; close: number }[]> {
+  for (const range of BRAPI_RANGES) {
+    try {
+      const data = await fetchBRAPIHistorical(ticker, token, range);
+      if (data.length > 0) {
+        console.log(`[BRAPI] ${ticker}: success with range=${range}, ${data.length} points`);
+        return data;
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes("INVALID_RANGE") || msg.includes("não está disponível")) {
+        console.log(`[BRAPI] ${ticker}: range=${range} not available, trying next...`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  return [];
+}
+
 // ─── Main handler ───────────────────────────────────────────
 
 Deno.serve(async (req) => {
