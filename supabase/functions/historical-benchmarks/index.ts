@@ -55,7 +55,9 @@ async function fetchBRAPIHistorical(
     throw new Error(`BRAPI HTTP ${res.status}: ${body.slice(0, 200)}`);
   }
   const data = await res.json();
-  return data.results?.[0]?.historicalDataPrice ?? [];
+  const prices = data.results?.[0]?.historicalDataPrice ?? [];
+  console.log(`[BRAPI] ${ticker}: got ${prices.length} data points`);
+  return prices;
 }
 
 // ─── Main handler ───────────────────────────────────────────
@@ -91,17 +93,26 @@ Deno.serve(async (req) => {
         let records: any[] = [];
 
         if (code === "CDI") {
-          // BCB series 12: CDI annualized rate (% a.a.)
-          // Convert to daily: daily = (1 + annual/100)^(1/252) - 1
+          // BCB series 12: CDI daily rate (% ao dia)
+          // Each value is the daily percentage rate, e.g. 0.0508 means 0.0508% per day
+          // We accumulate directly: cumIndex *= (1 + rate/100)
           const data = await fetchBCBSeries(12, startDate, endDate);
           console.log(`[CDI] Got ${data.length} data points from BCB series 12`);
 
+          if (data.length > 0) {
+            // Log first and last values for debugging
+            console.log(`[CDI] First value: ${data[0].valor} on ${data[0].data}`);
+            console.log(`[CDI] Last value: ${data[data.length - 1].valor} on ${data[data.length - 1].data}`);
+          }
+
           let cumIndex = 1000;
           for (const row of data) {
-            const annualRate = parseFloat(row.valor.replace(",", "."));
-            if (isNaN(annualRate)) continue;
-            const dailyRate = Math.pow(1 + annualRate / 100, 1 / 252) - 1;
-            cumIndex *= 1 + dailyRate;
+            const dailyRatePct = parseFloat(row.valor.replace(",", "."));
+            if (isNaN(dailyRatePct)) continue;
+            // BCB series 12 gives the daily rate as a percentage
+            // e.g. 0.0508 means 0.0508% per day → multiply by (1 + 0.000508)
+            const dailyRate = dailyRatePct / 100;
+            cumIndex *= (1 + dailyRate);
             records.push({
               benchmark_code: "CDI",
               benchmark_name: "CDI",
@@ -110,6 +121,10 @@ Deno.serve(async (req) => {
               source: "bcb_sgs_12",
               updated_at: now,
             });
+          }
+
+          if (records.length > 0) {
+            console.log(`[CDI] Cumulative index: start=1000, end=${cumIndex.toFixed(4)} (${((cumIndex / 1000 - 1) * 100).toFixed(2)}% total)`);
           }
         } else if (code === "IPCA") {
           // BCB series 433: IPCA monthly variation (%)
@@ -132,6 +147,10 @@ Deno.serve(async (req) => {
               updated_at: now,
             });
           }
+
+          if (records.length > 0) {
+            console.log(`[IPCA] Cumulative index: start=1000, end=${cumIndex.toFixed(4)}`);
+          }
         } else if (code === "IBOV") {
           // BRAPI: ^BVSP (Ibovespa index)
           if (!brapiToken) {
@@ -153,26 +172,37 @@ Deno.serve(async (req) => {
               updated_at: now,
             });
           }
+
+          if (records.length > 0) {
+            console.log(`[IBOV] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
+          }
         } else if (code === "IFIX") {
           // BRAPI: IFIX index
           if (!brapiToken) {
             results[code] = { ok: false, error: "BRAPI_TOKEN required for IFIX" };
             continue;
           }
-          // Try IFIX first, fallback to IFIX11 (ETF proxy)
+          // Try IFIX.SA, IFIX, IFIX11 in order
           let data: { date: number; close: number }[] = [];
-          try {
-            data = await fetchBRAPIHistorical("IFIX", brapiToken, "5y");
-          } catch {
-            console.log("[IFIX] Direct ticker failed, trying IFIX11 as proxy");
+          const tickers = ["IFIX", "IFIX11"];
+          for (const ticker of tickers) {
             try {
-              data = await fetchBRAPIHistorical("IFIX11", brapiToken, "5y");
-            } catch (e2) {
-              throw new Error(
-                `IFIX not available on BRAPI: ${(e2 as Error).message}`
-              );
+              data = await fetchBRAPIHistorical(ticker, brapiToken, "5y");
+              if (data.length > 0) {
+                console.log(`[IFIX] Success with ticker: ${ticker}`);
+                break;
+              }
+            } catch (e) {
+              console.log(`[IFIX] Ticker ${ticker} failed: ${(e as Error).message}`);
             }
           }
+
+          if (data.length === 0) {
+            console.log("[IFIX] No data from any ticker variant");
+            results[code] = { ok: false, error: "IFIX not available on BRAPI" };
+            continue;
+          }
+
           console.log(`[IFIX] Got ${data.length} data points from BRAPI`);
 
           for (const row of data) {
@@ -186,6 +216,10 @@ Deno.serve(async (req) => {
               source: "brapi",
               updated_at: now,
             });
+          }
+
+          if (records.length > 0) {
+            console.log(`[IFIX] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
           }
         }
 
