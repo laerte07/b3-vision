@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const navItems = [
@@ -22,33 +22,55 @@ const navItems = [
   { path: '/settings', label: 'Configurações', icon: Settings },
 ];
 
-// Context to share sidebar state with layout
-export const SidebarContext = createContext({ collapsed: false, mobileOpen: false });
+interface SidebarState {
+  collapsed: boolean;
+  mobileOpen: boolean;
+}
 
-const Sidebar = () => {
+const SidebarContext = createContext<SidebarState>({ collapsed: false, mobileOpen: false });
+export const useSidebarState = () => useContext(SidebarContext);
+
+export const SidebarProvider = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
-  const { signOut } = useAuth();
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Close mobile drawer on route change
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
   useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
-
-  // Close mobile drawer on escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileOpen(false);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, []);
+
+  return (
+    <SidebarContext.Provider value={{ collapsed: isMobile ? false : collapsed, mobileOpen }}>
+      {children}
+      <SidebarNav
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
+        isMobile={isMobile}
+      />
+    </SidebarContext.Provider>
+  );
+};
+
+interface SidebarNavProps {
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
+  mobileOpen: boolean;
+  setMobileOpen: (v: boolean) => void;
+  isMobile: boolean;
+}
+
+const SidebarNav = ({ collapsed, setCollapsed, mobileOpen, setMobileOpen, isMobile }: SidebarNavProps) => {
+  const location = useLocation();
+  const { signOut } = useAuth();
 
   const navContent = (
     <>
-      {/* Logo */}
       <div className={cn(
         'flex items-center h-14 border-b border-sidebar-border shrink-0',
         collapsed && !isMobile ? 'justify-center px-2' : 'px-4 justify-between'
@@ -68,7 +90,6 @@ const Sidebar = () => {
         )}
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -95,7 +116,6 @@ const Sidebar = () => {
         })}
       </nav>
 
-      {/* Footer */}
       <div className="px-2 py-2 border-t border-sidebar-border space-y-0.5 shrink-0">
         {!isMobile && (
           <button
@@ -125,25 +145,20 @@ const Sidebar = () => {
 
   if (isMobile) {
     return (
-      <SidebarContext.Provider value={{ collapsed: false, mobileOpen }}>
-        {/* Mobile trigger */}
+      <>
         <button
           onClick={() => setMobileOpen(true)}
           className="fixed top-3 left-3 z-50 h-9 w-9 flex items-center justify-center rounded-lg bg-card border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Abrir menu"
         >
-          <Menu className="h-4.5 w-4.5" />
+          <Menu className="h-4 w-4" />
         </button>
-
-        {/* Backdrop */}
         {mobileOpen && (
           <div
-            className="fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm transition-opacity"
+            className="fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
         )}
-
-        {/* Drawer */}
         <aside
           className={cn(
             'fixed left-0 top-0 h-screen w-64 bg-sidebar flex flex-col z-[70] border-r border-sidebar-border transition-transform duration-300 ease-in-out',
@@ -152,22 +167,20 @@ const Sidebar = () => {
         >
           {navContent}
         </aside>
-      </SidebarContext.Provider>
+      </>
     );
   }
 
   return (
-    <SidebarContext.Provider value={{ collapsed, mobileOpen: false }}>
-      <aside
-        className={cn(
-          'fixed left-0 top-0 h-screen bg-sidebar flex flex-col z-50 transition-all duration-300 ease-in-out border-r border-sidebar-border',
-          collapsed ? 'w-[60px]' : 'w-56'
-        )}
-      >
-        {navContent}
-      </aside>
-    </SidebarContext.Provider>
+    <aside
+      className={cn(
+        'fixed left-0 top-0 h-screen bg-sidebar flex flex-col z-50 transition-all duration-300 ease-in-out border-r border-sidebar-border',
+        collapsed ? 'w-[60px]' : 'w-56'
+      )}
+    >
+      {navContent}
+    </aside>
   );
 };
 
-export default Sidebar;
+export default SidebarNav;
