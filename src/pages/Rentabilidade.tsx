@@ -338,7 +338,12 @@ const Rentabilidade = () => {
       // Trim to period
       if (period !== 'all' && carteiraPoints.length > 0) {
         const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - periodMonths);
+        if (period === 'mtd') {
+          cutoff.setDate(1);
+          cutoff.setHours(0, 0, 0, 0);
+        } else {
+          cutoff.setMonth(cutoff.getMonth() - periodMonths);
+        }
         const filtered = carteiraPoints.filter(p => p.date >= cutoff);
         if (filtered.length > 0) {
           // Rebase to 0%
