@@ -17,6 +17,7 @@ import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
 import { formatBRL, formatPct } from '@/lib/format';
+import { parseMoney } from '@/lib/parse-money';
 
 // ============================================================
 // ALLOCATION MODES
@@ -77,7 +78,8 @@ const Contributions = () => {
   const updateNote = useUpdateContributionNote();
 
   // --- State ---
-  const [aporteValue, setAporteValue] = useState(0);
+  const [aporteRaw, setAporteRaw] = useState('');
+  const aporteValue = parseMoney(aporteRaw);
   const [aporteDate, setAporteDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [mode, setMode] = useState<AllocMode>('score_rebalanceamento');
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
@@ -219,36 +221,54 @@ const Contributions = () => {
     }
 
     // Rebalanceamento or Score + Rebalanceamento
+    const activeAssetsPriced = activeAssets.filter(a => (a.last_price ?? a.avg_price) > 0);
+
     const classData = targets.map(target => {
       const cls = classes.find(c => c.id === target.class_id);
-      const positions = activeAssets.filter(p => p.class_id === target.class_id);
+      const positions = activeAssetsPriced.filter(p => p.class_id === target.class_id);
       const currentValue = positions.reduce((s, p) => s + p.quantity * (p.last_price ?? p.avg_price), 0);
       const idealValue = totalWithAporte * (target.target_percent / 100);
       const deficit = idealValue - currentValue;
       return { classId: target.class_id, className: cls?.name ?? '?', positions, currentValue, idealValue, deficit, targetPct: target.target_percent };
-    }).filter(cd => cd.deficit > 0).sort((a, b) => b.deficit - a.deficit);
+    });
+
+    // Sort: classes with deficit first (largest deficit first), then others by target weight
+    const sortedClasses = [...classData].sort((a, b) => {
+      if (a.deficit > 0 && b.deficit > 0) return b.deficit - a.deficit;
+      if (a.deficit > 0) return -1;
+      if (b.deficit > 0) return 1;
+      return b.targetPct - a.targetPct;
+    });
 
     let remaining = aporteValue;
     const results: SuggestionItem[] = [];
 
-    for (const cd of classData) {
+    // Phase 1: allocate to classes with deficit
+    const classesWithDeficit = sortedClasses.filter(cd => cd.deficit > 0);
+    
+    for (const cd of (classesWithDeficit.length > 0 ? classesWithDeficit : sortedClasses)) {
       if (remaining <= 0) break;
-      const classAlloc = Math.min(cd.deficit, remaining);
+      // If class has deficit, cap at deficit; otherwise allocate proportionally
+      const classAlloc = cd.deficit > 0
+        ? Math.min(cd.deficit, remaining)
+        : Math.min(remaining, aporteValue * (cd.targetPct / 100));
 
-      let sortedAssets = cd.positions;
+      let sortedAssets = [...cd.positions];
       if (mode === 'score_rebalanceamento') {
-        sortedAssets = [...cd.positions].sort((a, b) => {
+        sortedAssets.sort((a, b) => {
           const sa = getAssetScore(a);
           const sb = getAssetScore(b);
           const concPenA = totalPortfolio > 0 ? (a.quantity * (a.last_price ?? a.avg_price)) / totalPortfolio : 0;
           const concPenB = totalPortfolio > 0 ? (b.quantity * (b.last_price ?? b.avg_price)) / totalPortfolio : 0;
           return (sb - concPenB * 20) - (sa - concPenA * 20);
         });
+      } else {
+        // Sort by price ascending so cheapest assets get tried first for small values
+        sortedAssets.sort((a, b) => (a.last_price ?? a.avg_price) - (b.last_price ?? b.avg_price));
       }
 
       if (sortedAssets.length === 0) continue;
 
-      // Distribute within class — try each asset in priority order
       let classRemaining = classAlloc;
       for (let i = 0; i < sortedAssets.length && classRemaining > 0; i++) {
         const asset = sortedAssets[i];
@@ -256,7 +276,7 @@ const Contributions = () => {
         if (price <= 0) continue;
 
         const qty = Math.floor(classRemaining / price);
-        if (qty <= 0) continue; // can't afford this asset, try next (cheaper) one
+        if (qty <= 0) continue;
 
         const actualAmt = qty * price;
         const currentVal = asset.quantity * price;
@@ -264,6 +284,7 @@ const Contributions = () => {
         const cls = classes.find(c => c.id === asset.class_id);
 
         let reason = 'Abaixo do alvo da classe';
+        if (cd.deficit <= 0) reason = 'Distribuição proporcional';
         if (mode === 'score_rebalanceamento' && i === 0) reason = 'Melhor score da classe';
         const pctP = totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0;
         if (pctP < 3) reason = 'Baixa concentração';
@@ -287,21 +308,77 @@ const Contributions = () => {
       }
     }
 
+    // Phase 2: if we still have remaining and didn't allocate anything,
+    // try ALL eligible assets sorted by price ascending (greedy fallback)
+    if (remaining > 0 && results.length === 0) {
+      const allByPrice = activeAssetsPriced
+        .slice()
+        .sort((a, b) => (a.last_price ?? a.avg_price) - (b.last_price ?? b.avg_price));
+      
+      for (const asset of allByPrice) {
+        if (remaining <= 0) break;
+        const price = asset.last_price ?? asset.avg_price;
+        const qty = Math.floor(remaining / price);
+        if (qty <= 0) continue;
+
+        const actualAmt = qty * price;
+        const currentVal = asset.quantity * price;
+        const projectedVal = currentVal + actualAmt;
+        const cls = classes.find(c => c.id === asset.class_id);
+
+        results.push({
+          asset,
+          className: cls?.name ?? '—',
+          sector: asset.sector ?? '—',
+          score: getAssetScore(asset),
+          pctCurrent: totalPortfolio > 0 ? (currentVal / totalPortfolio) * 100 : 0,
+          pctProjected: totalWithAporte > 0 ? (projectedVal / totalWithAporte) * 100 : 0,
+          price,
+          suggestedAmount: actualAmt,
+          suggestedQty: qty,
+          remainder: remaining - actualAmt,
+          reason: 'Melhor uso do valor disponível',
+        });
+
+        remaining -= actualAmt;
+      }
+    }
+
+    // Debug logging
+    console.log('[Aportes Debug]', {
+      aporteRaw,
+      aporteParsed: aporteValue,
+      mode,
+      eligibleAssets: activeAssetsPriced.length,
+      classesWithDeficit: classesWithDeficit.length,
+      totalAllocated: results.reduce((s, r) => s + r.suggestedAmount, 0),
+      sobra: remaining,
+      suggestions: results.map(r => ({ ticker: r.asset.ticker, qty: r.suggestedQty, amt: r.suggestedAmount, price: r.price })),
+    });
+
     return results;
-  }, [aporteValue, portfolio, classes, targets, mode, manualAmounts, classAmounts, totalPortfolio]);
+  }, [aporteValue, aporteRaw, portfolio, classes, targets, mode, manualAmounts, classAmounts, totalPortfolio]);
 
   const totalSuggested = suggestions.reduce((s, item) => s + item.suggestedAmount, 0);
   const totalRemainder = aporteValue - totalSuggested;
 
   // Minimum eligible price for current strategy
   const minEligiblePrice = useMemo(() => {
-    if (aporteValue <= 0 || portfolio.length === 0) return 0;
+    if (portfolio.length === 0) return 0;
     const activeAssets = portfolio.filter(p => p.quantity > 0 || p.active);
-    const prices = activeAssets
+    
+    let eligible = activeAssets;
+    // For rebalancing modes, filter to classes with targets
+    if (mode === 'rebalanceamento' || mode === 'score_rebalanceamento') {
+      const targetClassIds = new Set(targets.map(t => t.class_id));
+      eligible = activeAssets.filter(a => targetClassIds.has(a.class_id));
+    }
+    
+    const prices = eligible
       .map(a => a.last_price ?? a.avg_price)
       .filter(p => p > 0);
     return prices.length > 0 ? Math.min(...prices) : 0;
-  }, [aporteValue, portfolio]);
+  }, [portfolio, mode, targets]);
 
   // ============================================================
   // IMPACT PROJECTION
@@ -413,7 +490,7 @@ const Contributions = () => {
   const duplicateLast = useCallback(() => {
     if (contributions.length === 0) return;
     const last = contributions[0];
-    setAporteValue(last.total_amount);
+    setAporteRaw(String(last.total_amount));
     setMode(last.allocation_mode as AllocMode);
     if (last.allocation_mode === 'manual') {
       const amounts: Record<string, number> = {};
@@ -488,7 +565,7 @@ const Contributions = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label>Valor do aporte (R$)</Label>
-              <Input type="number" min={0} value={aporteValue || ''} onChange={e => setAporteValue(Number(e.target.value) || 0)} className="font-mono" placeholder="0" />
+              <Input type="text" inputMode="decimal" value={aporteRaw} onChange={e => setAporteRaw(e.target.value)} className="font-mono" placeholder="0,00" />
             </div>
             <div className="space-y-2">
               <Label>Data do aporte</Label>
@@ -808,7 +885,7 @@ const Contributions = () => {
                           <Button
                             variant="ghost" size="sm" className="h-7 w-7 p-0"
                             onClick={() => {
-                              setAporteValue(c.total_amount);
+                              setAporteRaw(String(c.total_amount));
                               setMode(c.allocation_mode as AllocMode);
                             }}
                           >
