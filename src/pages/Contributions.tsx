@@ -509,26 +509,54 @@ const Contributions = () => {
   // ============================================================
   // CONFIRM via Launch Modal
   // ============================================================
-  const handleLaunchConfirm = (launchItems: LaunchItem[], note: string, date: string) => {
+  const handleLaunchConfirm = async (launchItems: LaunchItem[], note: string, date: string) => {
     const buyItems = launchItems.filter(i => i.type === 'compra' && i.quantity > 0 && i.price > 0);
-    // For now, handle buys through the existing confirm mutation
-    // Sell items handled separately below
-    const items = buyItems.map(i => ({
-      asset_id: i.asset_id,
-      amount: i.price * i.quantity,
-      quantity: i.quantity,
-      unit_price: i.price,
-    }));
 
-    const totalAmt = items.reduce((s, i) => s + i.amount, 0);
-    if (items.length === 0) return;
+    // Auto-create external assets first
+    const resolvedItems: { asset_id: string; amount: number; quantity: number; unit_price: number }[] = [];
+    for (const li of buyItems) {
+      let assetId = li.asset_id;
+
+      if (li.isExternal && assetId.startsWith('ext:')) {
+        // Create asset in DB
+        const classId = li.class_id || classes?.find(c => c.slug === (li.externalClassSlug ?? 'acoes'))?.id;
+        if (!classId || !user) continue;
+
+        const { data: newAsset, error: assetErr } = await supabase
+          .from('assets')
+          .insert({
+            user_id: user.id,
+            ticker: li.ticker.toUpperCase(),
+            class_id: classId,
+            active: true,
+          })
+          .select('id')
+          .single();
+
+        if (assetErr || !newAsset) {
+          console.error('Failed to create asset', li.ticker, assetErr);
+          continue;
+        }
+        assetId = newAsset.id;
+      }
+
+      resolvedItems.push({
+        asset_id: assetId,
+        amount: li.price * li.quantity,
+        quantity: li.quantity,
+        unit_price: li.price,
+      });
+    }
+
+    const totalAmt = resolvedItems.reduce((s, i) => s + i.amount, 0);
+    if (resolvedItems.length === 0) return;
 
     confirmContribution.mutate({
       contribution_date: date,
       total_amount: totalAmt,
       allocation_mode: mode,
       note: note || undefined,
-      items,
+      items: resolvedItems,
     });
     setShowLaunchModal(false);
     setNoteText('');
