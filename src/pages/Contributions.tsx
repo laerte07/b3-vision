@@ -850,54 +850,11 @@ const Contributions = () => {
               </Table>
             )}
 
-            {/* Confirm button */}
-            <div className="mt-6 flex items-center gap-3 justify-end">
-              <div className="space-y-1 mr-auto">
-                <Label className="text-xs">Observação (opcional)</Label>
-                <Input
-                  className="h-8 text-xs w-64"
-                  placeholder="Ex: Aporte mensal março"
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                />
-              </div>
-              <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-                <DialogTrigger asChild>
-                  <Button className="gap-2" disabled={suggestions.filter(s => s.suggestedQty > 0).length === 0}>
-                    <CheckCircle className="h-4 w-4" /> Confirmar Aporte
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Confirmar Aporte de {formatBRL(totalSuggested)}?</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Isso irá registrar o aporte e atualizar automaticamente as posições de {suggestions.filter(s => s.suggestedQty > 0).length} ativo(s).
-                    </p>
-                    <div className="p-3 rounded-lg bg-muted/30 border border-border/50 space-y-1">
-                      {suggestions.filter(s => s.suggestedQty > 0).map(s => (
-                        <div key={s.asset.id} className="flex justify-between text-xs">
-                          <span className="font-medium">{s.asset.ticker}</span>
-                          <span className="font-mono">{s.suggestedQty} × {formatBRL(s.price)} = {formatBRL(s.suggestedAmount)}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {totalRemainder > 1 && (
-                      <div className="flex items-start gap-2 p-2 rounded bg-warning/10 border border-warning/20 text-xs">
-                        <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
-                        <span>Sobra de {formatBRL(totalRemainder)} não alocada (frações de cotas).</span>
-                      </div>
-                    )}
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button variant="outline" size="sm" onClick={() => setShowConfirmDialog(false)}>Cancelar</Button>
-                      <Button size="sm" onClick={handleConfirm} disabled={confirmContribution.isPending}>
-                        {confirmContribution.isPending ? 'Salvando...' : 'Confirmar'}
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+            {/* Registrar Aporte button */}
+            <div className="mt-6 flex justify-end">
+              <Button className="gap-2" onClick={() => setShowLaunchModal(true)} disabled={suggestions.filter(s => s.suggestedQty > 0).length === 0}>
+                <ClipboardList className="h-4 w-4" /> Registrar Aporte
+              </Button>
             </div>
           </CardContent>
         </Card>
