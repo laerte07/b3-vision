@@ -9,7 +9,6 @@ const corsHeaders = {
 // ─── Helpers ────────────────────────────────────────────────
 
 function parseBCBDate(dateStr: string): string {
-  // DD/MM/YYYY → YYYY-MM-DD
   const [d, m, y] = dateStr.split("/");
   return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
@@ -41,6 +40,72 @@ async function fetchBCBSeries(
   return data;
 }
 
+// ─── Yahoo Finance ──────────────────────────────────────────
+
+async function fetchYahooFinanceHistorical(
+  ticker: string,
+  range: string = "5y",
+  interval: string = "1d"
+): Promise<{ date: number; close: number }[]> {
+  const enc = encodeURIComponent(ticker);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${enc}?range=${range}&interval=${interval}`;
+  console.log(`[Yahoo] Fetching: ${ticker}, range=${range}, interval=${interval}`);
+  
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+  
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Yahoo HTTP ${res.status}: ${body.slice(0, 300)}`);
+  }
+  
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) {
+    throw new Error(`Yahoo: no result for ${ticker}`);
+  }
+  
+  const timestamps: number[] = result.timestamp ?? [];
+  const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
+  
+  const points: { date: number; close: number }[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const close = closes[i];
+    if (close != null && isFinite(close) && close > 0) {
+      points.push({ date: timestamps[i], close });
+    }
+  }
+  
+  console.log(`[Yahoo] ${ticker}: got ${points.length} valid data points from ${timestamps.length} timestamps`);
+  return points;
+}
+
+// Yahoo ranges to try in order
+const YAHOO_RANGES = ["5y", "2y", "1y", "6mo", "3mo"];
+
+async function fetchYahooWithFallback(
+  ticker: string,
+): Promise<{ date: number; close: number }[]> {
+  for (const range of YAHOO_RANGES) {
+    try {
+      const data = await fetchYahooFinanceHistorical(ticker, range);
+      if (data.length > 1) {
+        console.log(`[Yahoo] ${ticker}: success with range=${range}, ${data.length} points`);
+        return data;
+      }
+    } catch (e) {
+      console.log(`[Yahoo] ${ticker}: range=${range} failed: ${(e as Error).message.slice(0, 100)}`);
+      continue;
+    }
+  }
+  return [];
+}
+
+// ─── BRAPI (fallback) ───────────────────────────────────────
+
 async function fetchBRAPIHistorical(
   ticker: string,
   token: string,
@@ -60,7 +125,6 @@ async function fetchBRAPIHistorical(
   return prices;
 }
 
-// Try ranges in order of preference (largest first), fallback to smaller if plan-limited
 const BRAPI_RANGES = ["5y", "3mo", "1mo"];
 
 async function fetchBRAPIWithFallback(
@@ -84,6 +148,31 @@ async function fetchBRAPIWithFallback(
     }
   }
   return [];
+}
+
+// ─── Generic: convert timestamp+close array to records ──────
+
+function toRecords(
+  data: { date: number; close: number }[],
+  benchmarkCode: string,
+  benchmarkName: string,
+  source: string,
+  now: string,
+) {
+  const records: any[] = [];
+  for (const row of data) {
+    if (!row.close || !row.date) continue;
+    const date = new Date(row.date * 1000);
+    records.push({
+      benchmark_code: benchmarkCode,
+      benchmark_name: benchmarkName,
+      date: date.toISOString().slice(0, 10),
+      value: row.close,
+      source,
+      updated_at: now,
+    });
+  }
+  return records;
 }
 
 // ─── Main handler ───────────────────────────────────────────
@@ -120,13 +209,10 @@ Deno.serve(async (req) => {
 
         if (code === "CDI") {
           // BCB series 12: CDI daily rate (% ao dia)
-          // Each value is the daily percentage rate, e.g. 0.0508 means 0.0508% per day
-          // We accumulate directly: cumIndex *= (1 + rate/100)
           const data = await fetchBCBSeries(12, startDate, endDate);
           console.log(`[CDI] Got ${data.length} data points from BCB series 12`);
 
           if (data.length > 0) {
-            // Log first and last values for debugging
             console.log(`[CDI] First value: ${data[0].valor} on ${data[0].data}`);
             console.log(`[CDI] Last value: ${data[data.length - 1].valor} on ${data[data.length - 1].data}`);
           }
@@ -135,8 +221,6 @@ Deno.serve(async (req) => {
           for (const row of data) {
             const dailyRatePct = parseFloat(row.valor.replace(",", "."));
             if (isNaN(dailyRatePct)) continue;
-            // BCB series 12 gives the daily rate as a percentage
-            // e.g. 0.0508 means 0.0508% per day → multiply by (1 + 0.000508)
             const dailyRate = dailyRatePct / 100;
             cumIndex *= (1 + dailyRate);
             records.push({
@@ -155,9 +239,7 @@ Deno.serve(async (req) => {
         } else if (code === "IPCA") {
           // BCB series 433: IPCA monthly variation (%)
           const data = await fetchBCBSeries(433, startDate, endDate);
-          console.log(
-            `[IPCA] Got ${data.length} data points from BCB series 433`
-          );
+          console.log(`[IPCA] Got ${data.length} data points from BCB series 433`);
 
           let cumIndex = 1000;
           for (const row of data) {
@@ -178,71 +260,51 @@ Deno.serve(async (req) => {
             console.log(`[IPCA] Cumulative index: start=1000, end=${cumIndex.toFixed(4)}`);
           }
         } else if (code === "IBOV") {
-          // BRAPI: ^BVSP (Ibovespa index)
-          if (!brapiToken) {
-            results[code] = { ok: false, error: "BRAPI_TOKEN required for IBOV" };
-            continue;
-          }
-          const data = await fetchBRAPIWithFallback("^BVSP", brapiToken);
-          console.log(`[IBOV] Got ${data.length} data points from BRAPI`);
+          // Primary: Yahoo Finance (^BVSP) — free, 5y daily data
+          console.log("[IBOV] Trying Yahoo Finance first...");
+          let data = await fetchYahooWithFallback("^BVSP");
+          let source = "yahoo";
 
-          for (const row of data) {
-            if (!row.close || !row.date) continue;
-            const date = new Date(row.date * 1000);
-            records.push({
-              benchmark_code: "IBOV",
-              benchmark_name: "Ibovespa",
-              date: date.toISOString().slice(0, 10),
-              value: row.close,
-              source: "brapi",
-              updated_at: now,
-            });
+          // Fallback: BRAPI
+          if (data.length <= 1 && brapiToken) {
+            console.log("[IBOV] Yahoo insufficient, falling back to BRAPI...");
+            data = await fetchBRAPIWithFallback("^BVSP", brapiToken);
+            source = "brapi";
           }
+
+          console.log(`[IBOV] Got ${data.length} data points from ${source}`);
+          records = toRecords(data, "IBOV", "Ibovespa", source, now);
 
           if (records.length > 0) {
             console.log(`[IBOV] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
           }
         } else if (code === "IFIX") {
-          // BRAPI: IFIX index
-          if (!brapiToken) {
-            results[code] = { ok: false, error: "BRAPI_TOKEN required for IFIX" };
-            continue;
-          }
-          // Try IFIX.SA, IFIX, IFIX11 in order
-          let data: { date: number; close: number }[] = [];
-          const tickers = ["IFIX", "IFIX11"];
-          for (const ticker of tickers) {
-            try {
-              data = await fetchBRAPIWithFallback(ticker, brapiToken);
-              if (data.length > 0) {
-                console.log(`[IFIX] Success with ticker: ${ticker}`);
-                break;
+          // Primary: Yahoo Finance (IFIX.SA) — try first
+          console.log("[IFIX] Trying Yahoo Finance first...");
+          let data = await fetchYahooWithFallback("IFIX.SA");
+          let source = "yahoo";
+
+          // Fallback: BRAPI with multiple tickers
+          if (data.length <= 1 && brapiToken) {
+            console.log("[IFIX] Yahoo insufficient, falling back to BRAPI...");
+            const tickers = ["IFIX", "IFIX11"];
+            data = [];
+            for (const ticker of tickers) {
+              try {
+                data = await fetchBRAPIWithFallback(ticker, brapiToken);
+                if (data.length > 1) {
+                  console.log(`[IFIX] BRAPI success with ticker: ${ticker}`);
+                  break;
+                }
+              } catch (e) {
+                console.log(`[IFIX] BRAPI ticker ${ticker} failed: ${(e as Error).message}`);
               }
-            } catch (e) {
-              console.log(`[IFIX] Ticker ${ticker} failed: ${(e as Error).message}`);
             }
+            source = "brapi";
           }
 
-          if (data.length === 0) {
-            console.log("[IFIX] No data from any ticker variant");
-            results[code] = { ok: false, error: "IFIX not available on BRAPI" };
-            continue;
-          }
-
-          console.log(`[IFIX] Got ${data.length} data points from BRAPI`);
-
-          for (const row of data) {
-            if (!row.close || !row.date) continue;
-            const date = new Date(row.date * 1000);
-            records.push({
-              benchmark_code: "IFIX",
-              benchmark_name: "IFIX",
-              date: date.toISOString().slice(0, 10),
-              value: row.close,
-              source: "brapi",
-              updated_at: now,
-            });
-          }
+          console.log(`[IFIX] Got ${data.length} data points from ${source}`);
+          records = toRecords(data, "IFIX", "IFIX", source, now);
 
           if (records.length > 0) {
             console.log(`[IFIX] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
