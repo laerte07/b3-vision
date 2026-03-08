@@ -1,19 +1,18 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, CheckCircle, AlertTriangle, Search } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, AlertTriangle, Search, Loader2, Globe } from 'lucide-react';
 import { PortfolioAsset } from '@/hooks/usePortfolio';
 import { formatBRL } from '@/lib/format';
 import { parseMoney } from '@/lib/parse-money';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 // ============================================================
 // TYPES
@@ -29,6 +28,9 @@ export interface LaunchItem {
   fees: number;
   total: number;
   priceAuto: boolean;
+  /** If true, asset doesn't exist in DB yet — must be created on confirm */
+  isExternal?: boolean;
+  externalClassSlug?: string;
 }
 
 interface Props {
@@ -36,7 +38,6 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   portfolio: PortfolioAsset[];
   classes: { id: string; name: string; slug: string }[];
-  /** Pre-filled items from suggestion engine */
   prefillItems?: {
     asset: PortfolioAsset;
     qty: number;
@@ -54,16 +55,16 @@ interface Props {
 let _nextId = 1;
 const genId = () => `launch-${_nextId++}`;
 
-const CLASS_LABELS: Record<string, string> = {
-  acoes: 'Ações',
-  fiis: 'FIIs',
-  etfs: 'ETFs',
-  bdrs: 'BDRs',
-  renda_fixa: 'Renda Fixa',
-};
-
 function recalcTotal(item: LaunchItem): LaunchItem {
   return { ...item, total: +(item.price * item.quantity + item.fees).toFixed(2) };
+}
+
+// ============================================================
+// EXTERNAL SEARCH RESULT
+// ============================================================
+interface ExternalResult {
+  ticker: string;
+  classSlug: string;
 }
 
 // ============================================================
@@ -76,7 +77,6 @@ export function ContributionLaunchModal({
   const [note, setNote] = useState(initialNote);
   const [date, setDate] = useState(aporteDate);
 
-  // Populate from prefill when modal opens
   useEffect(() => {
     if (!open) return;
     setNote(initialNote);
@@ -108,13 +108,9 @@ export function ContributionLaunchModal({
     setItems(prev => prev.map(item => {
       if (item.id !== id) return item;
       const updated = { ...item, ...patch };
-
-      // Auto-calc logic
-      // If price + qty changed → recalc total
       if ('price' in patch || 'quantity' in patch || 'fees' in patch) {
         return recalcTotal(updated);
       }
-      // If total changed manually → recalc qty from price
       if ('total' in patch && updated.price > 0) {
         const newQty = Math.floor((updated.total - updated.fees) / updated.price);
         return { ...updated, quantity: Math.max(0, newQty), total: +(newQty * updated.price + updated.fees).toFixed(2) };
@@ -232,14 +228,18 @@ function LaunchItemRow({
   const [feesRaw, setFeesRaw] = useState('');
   const [totalRaw, setTotalRaw] = useState('');
 
-  // Sync from parent when prefilled
+  // External search state
+  const [externalResults, setExternalResults] = useState<ExternalResult[]>([]);
+  const [externalLoading, setExternalLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (item.price > 0) setPriceRaw(item.price.toFixed(2).replace('.', ','));
     if (item.quantity > 0) setQtyRaw(String(item.quantity));
   }, [item.price, item.quantity]);
 
-  // Filtered assets for search
-  const filteredAssets = useMemo(() => {
+  // Local search
+  const filteredLocal = useMemo(() => {
     if (assetSearch.length < 2) return [];
     const q = assetSearch.toLowerCase();
     return portfolio.filter(a =>
@@ -247,13 +247,84 @@ function LaunchItemRow({
         a.ticker.toLowerCase().includes(q) ||
         (a.name ?? '').toLowerCase().includes(q)
       )
-    ).slice(0, 15);
+    ).slice(0, 10);
   }, [portfolio, assetSearch]);
 
-  // Find current position for sell validation
+  // External search with debounce
+  useEffect(() => {
+    if (assetSearch.length < 2) {
+      setExternalResults([]);
+      setExternalLoading(false);
+      return;
+    }
+
+    // Only search externally if local results are few
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      setExternalLoading(true);
+      try {
+        const { data, error } = await supabase.functions.invoke('brapi-search', {
+          body: { query: assetSearch },
+        });
+        if (!error && data?.results) {
+          // Filter out tickers already in portfolio
+          const localTickers = new Set(portfolio.map(a => a.ticker.toUpperCase()));
+          const filtered = (data.results as ExternalResult[]).filter(
+            r => !localTickers.has(r.ticker.toUpperCase())
+          );
+          setExternalResults(filtered.slice(0, 10));
+        } else {
+          setExternalResults([]);
+        }
+      } catch {
+        setExternalResults([]);
+      } finally {
+        setExternalLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [assetSearch, portfolio]);
+
   const currentPosition = portfolio.find(p => p.id === item.asset_id);
   const maxSellQty = currentPosition?.quantity ?? 0;
   const sellExceeds = item.type === 'venda' && item.quantity > maxSellQty;
+
+  const handleSelectLocal = (a: PortfolioAsset) => {
+    const price = a.last_price ?? a.avg_price;
+    onUpdate(item.id, {
+      asset_id: a.id,
+      ticker: a.ticker,
+      class_id: a.class_id,
+      price,
+      priceAuto: true,
+      isExternal: false,
+      externalClassSlug: undefined,
+    });
+    setPriceRaw(price.toFixed(2).replace('.', ','));
+    setAssetOpen(false);
+    setAssetSearch('');
+  };
+
+  const handleSelectExternal = (r: ExternalResult) => {
+    // Find class_id from slug
+    const cls = classes.find(c => c.slug === r.classSlug);
+    onUpdate(item.id, {
+      asset_id: `ext:${r.ticker}`, // temporary marker
+      ticker: r.ticker,
+      class_id: cls?.id ?? '',
+      price: 0,
+      priceAuto: false,
+      isExternal: true,
+      externalClassSlug: r.classSlug,
+    });
+    setPriceRaw('');
+    setAssetOpen(false);
+    setAssetSearch('');
+  };
 
   const handlePriceBlur = () => {
     const val = parseMoney(priceRaw);
@@ -275,15 +346,16 @@ function LaunchItemRow({
     if (val > 0) onUpdate(item.id, { total: val });
   };
 
-  const classSlug = classes.find(c => c.id === item.class_id)?.slug ?? '';
+  const hasExternal = externalResults.length > 0;
+  const hasLocal = filteredLocal.length > 0;
+  const showEmpty = assetSearch.length >= 2 && !hasLocal && !hasExternal && !externalLoading;
 
   return (
     <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-      {/* Header: type toggle + asset + remove */}
+      {/* Header */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground font-medium min-w-[20px]">#{index + 1}</span>
 
-        {/* Buy/Sell toggle */}
         <Tabs value={item.type} onValueChange={v => onUpdate(item.id, { type: v as 'compra' | 'venda' })} className="shrink-0">
           <TabsList className="h-8">
             <TabsTrigger value="compra" className="text-xs px-3 h-7 data-[state=active]:bg-emerald-600/20 data-[state=active]:text-emerald-400">
@@ -295,7 +367,6 @@ function LaunchItemRow({
           </TabsList>
         </Tabs>
 
-        {/* Asset class */}
         <Select value={item.class_id || undefined} onValueChange={v => onUpdate(item.id, { class_id: v })}>
           <SelectTrigger className="w-[120px] h-8 text-xs">
             <SelectValue placeholder="Tipo" />
@@ -307,49 +378,82 @@ function LaunchItemRow({
           </SelectContent>
         </Select>
 
-        {/* Asset search */}
+        {/* Asset search — hybrid */}
         <Popover open={assetOpen} onOpenChange={setAssetOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("flex-1 justify-start text-xs h-8 font-mono", !item.ticker && "text-muted-foreground")}>
-              <Search className="h-3 w-3 mr-1.5 shrink-0" />
+            <Button variant="outline" size="sm" className={cn("flex-1 justify-start text-xs h-8 font-mono gap-1.5", !item.ticker && "text-muted-foreground")}>
+              {item.isExternal && <Globe className="h-3 w-3 text-blue-400 shrink-0" />}
+              {!item.isExternal && <Search className="h-3 w-3 mr-0.5 shrink-0" />}
               {item.ticker || 'Selecionar ativo...'}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[260px] p-0" align="start">
+          <PopoverContent className="w-[300px] p-0" align="start">
             <Command shouldFilter={false}>
-              <CommandInput placeholder="Digite 2+ caracteres..." value={assetSearch} onValueChange={setAssetSearch} className="text-xs" />
+              <CommandInput placeholder="Buscar ticker ou nome..." value={assetSearch} onValueChange={setAssetSearch} className="text-xs" />
               <CommandList>
-                <CommandEmpty className="text-xs py-4 text-center">
-                  {assetSearch.length < 2 ? 'Digite 2 ou mais caracteres' : 'Nenhum ativo encontrado'}
-                </CommandEmpty>
-                {filteredAssets.length > 0 && (
-                  <CommandGroup>
-                    {filteredAssets.map(a => (
+                {assetSearch.length < 2 && (
+                  <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">
+                    Digite 2 ou mais caracteres
+                  </CommandEmpty>
+                )}
+
+                {/* Local results */}
+                {hasLocal && (
+                  <CommandGroup heading="Minha carteira">
+                    {filteredLocal.map(a => (
                       <CommandItem
                         key={a.id}
                         value={a.id}
-                        onSelect={() => {
-                          const price = a.last_price ?? a.avg_price;
-                          onUpdate(item.id, {
-                            asset_id: a.id,
-                            ticker: a.ticker,
-                            class_id: a.class_id,
-                            price,
-                            priceAuto: true,
-                          });
-                          setPriceRaw(price.toFixed(2).replace('.', ','));
-                          setAssetOpen(false);
-                          setAssetSearch('');
-                        }}
+                        onSelect={() => handleSelectLocal(a)}
                         className="text-xs"
                       >
-                        <div className="flex justify-between w-full">
-                          <span className="font-mono font-medium">{a.ticker}</span>
-                          <span className="text-muted-foreground">{a.last_price ? formatBRL(a.last_price) : '—'}</span>
+                        <div className="flex justify-between w-full items-center">
+                          <div className="flex flex-col">
+                            <span className="font-mono font-medium">{a.ticker}</span>
+                            {a.name && <span className="text-[10px] text-muted-foreground truncate max-w-[160px]">{a.name}</span>}
+                          </div>
+                          <span className="text-muted-foreground font-mono">{a.last_price ? formatBRL(a.last_price) : '—'}</span>
                         </div>
                       </CommandItem>
                     ))}
                   </CommandGroup>
+                )}
+
+                {/* External results */}
+                {hasExternal && (
+                  <CommandGroup heading="Busca B3 (BRAPI)">
+                    {externalResults.map(r => (
+                      <CommandItem
+                        key={r.ticker}
+                        value={r.ticker}
+                        onSelect={() => handleSelectExternal(r)}
+                        className="text-xs"
+                      >
+                        <div className="flex justify-between w-full items-center">
+                          <div className="flex items-center gap-1.5">
+                            <Globe className="h-3 w-3 text-blue-400 shrink-0" />
+                            <span className="font-mono font-medium">{r.ticker}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground capitalize">{r.classSlug}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+
+                {/* Loading */}
+                {externalLoading && assetSearch.length >= 2 && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Buscando na B3...
+                  </div>
+                )}
+
+                {/* Empty */}
+                {showEmpty && (
+                  <CommandEmpty className="text-xs py-4 text-center">
+                    Nenhum ativo encontrado
+                  </CommandEmpty>
                 )}
               </CommandList>
             </Command>
@@ -360,6 +464,14 @@ function LaunchItemRow({
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* External asset notice */}
+      {item.isExternal && (
+        <div className="flex items-center gap-1.5 text-[10px] text-blue-400">
+          <Globe className="h-3 w-3" />
+          Ativo novo — será cadastrado automaticamente ao confirmar
+        </div>
+      )}
 
       {/* Fields row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -374,6 +486,7 @@ function LaunchItemRow({
             placeholder="0,00"
           />
           {item.priceAuto && <span className="text-[9px] text-muted-foreground">Preço atual</span>}
+          {item.isExternal && item.price === 0 && <span className="text-[9px] text-amber-400">Preencha manualmente</span>}
         </div>
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">Quantidade</Label>
