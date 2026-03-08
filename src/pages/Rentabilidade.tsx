@@ -11,14 +11,15 @@ import {
 } from 'recharts';
 import {
   TrendingUp, ChevronDown, Check, RotateCcw, Layers, Flame, Globe, BarChart3,
-  ArrowUpRight, ArrowDownRight, Activity, PlayCircle, Info,
+  ArrowUpRight, ArrowDownRight, Activity, PlayCircle, Info, RefreshCw,
 } from 'lucide-react';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useTransactions, Transaction } from '@/hooks/useTransactions';
+import { useBenchmarkHistory, BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
 import { formatPct } from '@/lib/format';
 
 // ─── Series definitions ─────────────────────────────────────
-type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ifix' | 'ibov' | 'smll' | 'idiv' | 'ivvb11';
+type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ifix' | 'ibov';
 
 interface SeriesDef { key: SeriesKey; label: string; color: string }
 
@@ -28,28 +29,24 @@ const ALL_SERIES: SeriesDef[] = [
   { key: 'ipca',     label: 'IPCA',     color: 'hsl(30, 90%, 55%)' },
   { key: 'ifix',     label: 'IFIX',     color: 'hsl(142, 70%, 45%)' },
   { key: 'ibov',     label: 'IBOV',     color: 'hsl(280, 70%, 60%)' },
-  { key: 'smll',     label: 'SMLL',     color: 'hsl(340, 65%, 55%)' },
-  { key: 'idiv',     label: 'IDIV',     color: 'hsl(180, 60%, 45%)' },
-  { key: 'ivvb11',   label: 'IVVB11',   color: 'hsl(60, 70%, 50%)' },
 ];
 
 const DEFAULT_VISIBLE: SeriesKey[] = ['carteira', 'cdi'];
 
 const PRESETS: { label: string; icon: React.ReactNode; keys: SeriesKey[] }[] = [
   { label: 'Inflação', icon: <Flame className="h-3 w-3" />, keys: ['carteira', 'cdi', 'ipca'] },
-  { label: 'Renda Variável BR', icon: <BarChart3 className="h-3 w-3" />, keys: ['carteira', 'ibov', 'smll', 'ifix'] },
-  { label: 'Dividendos', icon: <TrendingUp className="h-3 w-3" />, keys: ['carteira', 'idiv', 'ifix'] },
-  { label: 'Internacional', icon: <Globe className="h-3 w-3" />, keys: ['carteira', 'ivvb11'] },
+  { label: 'Renda Variável BR', icon: <BarChart3 className="h-3 w-3" />, keys: ['carteira', 'ibov', 'ifix'] },
+  { label: 'Dividendos', icon: <TrendingUp className="h-3 w-3" />, keys: ['carteira', 'ifix'] },
 ];
 
 type PeriodKey = 'mtd' | '6m' | '12m' | '24m' | '60m' | 'all';
 const PERIODS: { key: PeriodKey; label: string; months: number }[] = [
-  { key: 'mtd', label: 'Mês atual', months: -1 }, // -1 = month-to-date
+  { key: 'mtd', label: 'Mês atual', months: -1 },
   { key: '6m', label: '6 meses', months: 6 },
   { key: '12m', label: '12 meses', months: 12 },
   { key: '24m', label: '2 anos', months: 24 },
   { key: '60m', label: '5 anos', months: 60 },
-  { key: 'all', label: 'Desde o início', months: 0 }, // 0 = dynamic
+  { key: 'all', label: 'Desde o início', months: 0 },
 ];
 
 type Mode = 'real' | 'simulacao';
@@ -71,44 +68,13 @@ function loadMode(): Mode {
 }
 function saveMode(m: Mode) { localStorage.setItem(LS_MODE_KEY, m); }
 
-// ─── Benchmark mock generator (deterministic) ───────────────
-const MONTHLY_RATES: Record<Exclude<SeriesKey, 'carteira'>, { mean: number; vol: number }> = {
-  cdi:    { mean: 0.0104, vol: 0.0005 },
-  ipca:   { mean: 0.0037, vol: 0.002 },
-  ifix:   { mean: 0.0080, vol: 0.018 },
-  ibov:   { mean: 0.0095, vol: 0.035 },
-  smll:   { mean: 0.0065, vol: 0.04 },
-  idiv:   { mean: 0.0110, vol: 0.028 },
-  ivvb11: { mean: 0.0153, vol: 0.04 },
+// ─── Benchmark code mapping ─────────────────────────────────
+const SERIES_TO_BENCHMARK: Partial<Record<SeriesKey, string>> = {
+  cdi: 'CDI',
+  ipca: 'IPCA',
+  ibov: 'IBOV',
+  ifix: 'IFIX',
 };
-
-function generateBenchmarkSeries(months: number): { date: Date; values: Record<Exclude<SeriesKey, 'carteira'>, number> }[] {
-  let seed = 42;
-  const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-  const randNorm = () => { const u1 = rand(); const u2 = rand(); return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2); };
-
-  const now = new Date();
-  const keys = Object.keys(MONTHLY_RATES) as Exclude<SeriesKey, 'carteira'>[];
-  const cumulative: Record<string, number> = {};
-  keys.forEach(k => (cumulative[k] = 0));
-
-  const data: { date: Date; values: Record<string, number> }[] = [];
-
-  for (let i = months; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    if (i === months) {
-      data.push({ date: d, values: { ...cumulative } });
-      continue;
-    }
-    for (const k of keys) {
-      const { mean, vol } = MONTHLY_RATES[k];
-      const monthReturn = mean + vol * randNorm();
-      cumulative[k] = (1 + cumulative[k] / 100) * (1 + monthReturn) * 100 - 100;
-    }
-    data.push({ date: d, values: { ...cumulative } });
-  }
-  return data as any;
-}
 
 // ─── Helper: get start-of-period date ───────────────────────
 function getPeriodStartDate(period: PeriodKey, periodMonths: number, transactions: Transaction[]): Date {
@@ -125,8 +91,6 @@ function getPeriodStartDate(period: PeriodKey, periodMonths: number, transaction
 }
 
 // ─── Helper: find price for an asset at a given date ────────
-// Uses the most recent transaction price on or before the date.
-// Falls back to avg_price from positions.
 function findStartPrice(
   assetId: string,
   periodStart: Date,
@@ -134,7 +98,6 @@ function findStartPrice(
   avgPriceMap: Record<string, number>,
 ): number | null {
   const dateStr = periodStart.toISOString().slice(0, 10);
-  // Find the last transaction for this asset on or before periodStart
   let best: Transaction | null = null;
   for (const t of transactions) {
     if (t.asset_id !== assetId) continue;
@@ -143,7 +106,6 @@ function findStartPrice(
     }
   }
   if (best) return best.price;
-  // If no transaction before period start, use avg_price
   if (avgPriceMap[assetId]) return avgPriceMap[assetId];
   return null;
 }
@@ -151,16 +113,6 @@ function findStartPrice(
 // ─── Real mode: True TWR (Time-Weighted Return) ────────────
 interface MonthlyPoint { date: Date; cumulativeReturn: number }
 
-/**
- * Proper TWR implementation:
- * 1. Reconstruct positions day-by-day using transactions
- * 2. At each cash flow (buy/sell), close a sub-period and compute its return
- * 3. Chain all sub-period returns: TWR = product(1 + r_i) - 1
- *
- * Portfolio value = sum(qty_i * price_i) for all held assets.
- * We use transaction prices as price snapshots on flow dates,
- * and current prices (from price_cache) for the final valuation.
- */
 function computeRealReturn(
   transactions: Transaction[],
   portfolio: PortfolioAsset[],
@@ -176,19 +128,15 @@ function computeRealReturn(
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
 
-  // Current prices from portfolio (price_cache)
   const currentPriceMap: Record<string, number> = {};
   portfolio.forEach(a => { if (a.last_price != null) currentPriceMap[a.id] = a.last_price; });
 
-  // ── Step 1: Replay all transactions before period start to get starting positions ──
-  // Positions: { assetId: { qty, avgPrice } }
   const positions: Record<string, { qty: number; avgPrice: number }> = {};
 
   const updatePosition = (tx: Transaction) => {
     if (!positions[tx.asset_id]) positions[tx.asset_id] = { qty: 0, avgPrice: 0 };
     const pos = positions[tx.asset_id];
     if (tx.type === 'compra' || tx.type === 'buy') {
-      // PM novo = ((qty_atual * pm_atual) + (qty_compra * preço_compra)) / qty_nova
       const newQty = pos.qty + tx.quantity;
       if (newQty > 0) {
         pos.avgPrice = ((pos.qty * pos.avgPrice) + (tx.quantity * tx.price)) / newQty;
@@ -197,31 +145,24 @@ function computeRealReturn(
       }
       pos.qty = newQty;
     } else {
-      // Sell: reduce qty, keep avgPrice unchanged
       pos.qty = Math.max(0, pos.qty - tx.quantity);
-      // avgPrice stays the same for remaining shares
     }
   };
 
-  // Replay pre-period transactions
   for (const tx of sorted) {
     if (tx.date > periodStartStr) break;
     updatePosition(tx);
   }
 
-  // Last known price per asset (used for valuation between flows)
-  // Initialize with the most recent transaction price on or before period start
   const lastKnownPrice: Record<string, number> = {};
   for (const tx of sorted) {
     if (tx.date > periodStartStr) break;
     lastKnownPrice[tx.asset_id] = tx.price;
   }
-  // Fill missing with avg_price from positions
   for (const [id, pos] of Object.entries(positions)) {
     if (!lastKnownPrice[id] && pos.avgPrice > 0) lastKnownPrice[id] = pos.avgPrice;
   }
 
-  // Portfolio valuation helper
   const valuate = (): number => {
     let total = 0;
     for (const [id, pos] of Object.entries(positions)) {
@@ -232,10 +173,9 @@ function computeRealReturn(
     return total;
   };
 
-  // ── Step 2: TWR chain through in-period transactions ──
   const inPeriodTxs = sorted.filter(tx => tx.date > periodStartStr && tx.date <= nowStr);
 
-  let twrProduct = 1; // Product of (1 + r_i) for each sub-period
+  let twrProduct = 1;
   let prevValue = valuate();
 
   if (import.meta.env.DEV) {
@@ -245,26 +185,18 @@ function computeRealReturn(
     console.log('Patrimônio inicial:', prevValue.toFixed(2));
   }
 
-  // Monthly snapshots for charting
   const monthlySnapshots: { date: string; twrCumulative: number }[] = [];
   const addSnapshot = (dateStr: string) => {
     monthlySnapshots.push({ date: dateStr, twrCumulative: (twrProduct - 1) * 100 });
   };
 
-  // Add start snapshot
   addSnapshot(periodStartStr);
-
-  // Track which month we're in for monthly snapshots
-  let currentMonth = periodStartStr.slice(0, 7); // YYYY-MM
+  let currentMonth = periodStartStr.slice(0, 7);
 
   for (const tx of inPeriodTxs) {
-    // Update price for the transacted asset (the transaction tells us the price on that date)
     lastKnownPrice[tx.asset_id] = tx.price;
-
-    // Value BEFORE the cash flow (using updated price for this asset)
     const valueBeforeFlow = valuate();
 
-    // Sub-period return (market movement since last valuation)
     if (prevValue > 0) {
       const subReturn = (valueBeforeFlow / prevValue) - 1;
       twrProduct *= (1 + subReturn);
@@ -275,10 +207,8 @@ function computeRealReturn(
       }
     }
 
-    // Check if we crossed a month boundary → snapshot
     const txMonth = tx.date.slice(0, 7);
     while (currentMonth < txMonth) {
-      // Advance month
       const [y, m] = currentMonth.split('-').map(Number);
       const nextM = m === 12 ? 1 : m + 1;
       const nextY = m === 12 ? y + 1 : y;
@@ -288,10 +218,7 @@ function computeRealReturn(
       }
     }
 
-    // Apply the cash flow (update positions)
     updatePosition(tx);
-
-    // New portfolio value AFTER the cash flow
     prevValue = valuate();
 
     if (import.meta.env.DEV) {
@@ -299,8 +226,6 @@ function computeRealReturn(
     }
   }
 
-  // ── Step 3: Final sub-period (last flow → now) using current market prices ──
-  // Update all prices to current market prices
   for (const [id, price] of Object.entries(currentPriceMap)) {
     lastKnownPrice[id] = price;
   }
@@ -322,8 +247,6 @@ function computeRealReturn(
     console.groupEnd();
   }
 
-  // ── Step 4: Build monthly chart points ──
-  // Fill remaining months up to now
   const nowMonth = nowStr.slice(0, 7);
   while (currentMonth < nowMonth) {
     const [y, m] = currentMonth.split('-').map(Number);
@@ -332,34 +255,26 @@ function computeRealReturn(
     currentMonth = `${nextY}-${String(nextM).padStart(2, '0')}`;
     addSnapshot(`${currentMonth}-01`);
   }
-  // Final snapshot at today's date
   addSnapshot(nowStr);
 
-  // Ensure the last snapshot has the final TWR
   if (monthlySnapshots.length > 0) {
     monthlySnapshots[monthlySnapshots.length - 1].twrCumulative = totalTWR;
   }
 
-  // For intermediate months where we don't have exact TWR, interpolate
-  // We have snapshots at flow dates; fill gaps with compound interpolation
   const points: MonthlyPoint[] = [];
   const startDate = new Date(periodStartStr);
   const totalDays = (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-
   if (totalDays <= 0) return [];
 
-  // Build monthly points
   const cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
   const endMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // Use snapshots to build a lookup
   const snapshotMap: Record<string, number> = {};
   monthlySnapshots.forEach(s => {
     const key = s.date.slice(0, 7);
-    snapshotMap[key] = s.twrCumulative; // last value for each month wins
+    snapshotMap[key] = s.twrCumulative;
   });
 
-  // Start at 0
   points.push({ date: new Date(cur), cumulativeReturn: 0 });
 
   const totalMonths = (endMonth.getFullYear() - cur.getFullYear()) * 12 + (endMonth.getMonth() - cur.getMonth());
@@ -367,20 +282,17 @@ function computeRealReturn(
   if (totalMonths <= 1) {
     points.push({ date: now, cumulativeReturn: totalTWR });
   } else {
-    // For each month, use snapshot if available, otherwise interpolate
     for (let i = 1; i <= totalMonths; i++) {
       const d = new Date(cur.getFullYear(), cur.getMonth() + i, 1);
       const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (snapshotMap[mk] !== undefined) {
         points.push({ date: d, cumulativeReturn: snapshotMap[mk] });
       } else {
-        // Compound interpolation
         const fraction = i / totalMonths;
         const interpReturn = (Math.pow(twrProduct, fraction) - 1) * 100;
         points.push({ date: d, cumulativeReturn: interpReturn });
       }
     }
-    // Ensure final point
     if (points[points.length - 1].cumulativeReturn !== totalTWR) {
       points.push({ date: now, cumulativeReturn: totalTWR });
     }
@@ -411,7 +323,6 @@ function computeSimulation(
     console.log('Período:', periodStart.toISOString().slice(0, 10));
   }
 
-  // For simulation: use current weights, calculate return based on prices
   let portfolioReturn = 0;
 
   for (const asset of activeAssets) {
@@ -435,7 +346,6 @@ function computeSimulation(
     console.groupEnd();
   }
 
-  // Build chart points
   const now = new Date();
   const points: MonthlyPoint[] = [];
   const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
@@ -457,6 +367,55 @@ function computeSimulation(
   return points;
 }
 
+// ─── Benchmark normalization helper ─────────────────────────
+// Takes raw benchmark data and normalizes to cumulative % return from period start
+function normalizeBenchmarks(
+  benchmarkData: BenchmarkPoint[],
+  periodStart: Date,
+): Record<string, { date: string; pctReturn: number }[]> {
+  const grouped: Record<string, BenchmarkPoint[]> = {};
+  for (const p of benchmarkData) {
+    if (!grouped[p.benchmark_code]) grouped[p.benchmark_code] = [];
+    grouped[p.benchmark_code].push(p);
+  }
+
+  const result: Record<string, { date: string; pctReturn: number }[]> = {};
+  const periodStartStr = periodStart.toISOString().slice(0, 10);
+
+  for (const [code, points] of Object.entries(grouped)) {
+    // Find base value: first point on or before periodStart
+    // Points are sorted by date ascending
+    let baseValue: number | null = null;
+    for (const p of points) {
+      if (p.date <= periodStartStr) {
+        baseValue = p.value;
+      } else {
+        break;
+      }
+    }
+    // If no point before period start, use first available
+    if (baseValue === null && points.length > 0) {
+      baseValue = points[0].value;
+    }
+    if (baseValue === null || baseValue === 0) continue;
+
+    const normalized = points
+      .filter(p => p.date >= periodStartStr)
+      .map(p => ({
+        date: p.date,
+        pctReturn: ((p.value / baseValue!) - 1) * 100,
+      }));
+
+    result[code] = normalized;
+
+    if (import.meta.env.DEV) {
+      console.log(`[Benchmark ${code}] base=${baseValue.toFixed(2)}, points=${normalized.length}, last=${normalized[normalized.length - 1]?.pctReturn.toFixed(2) ?? 'N/A'}%`);
+    }
+  }
+
+  return result;
+}
+
 // ─── Component ──────────────────────────────────────────────
 const Rentabilidade = () => {
   const [visibleSeries, setVisibleSeries] = useState<SeriesKey[]>(loadSavedSeries);
@@ -472,9 +431,7 @@ const Rentabilidade = () => {
 
   // Determine period months
   const periodMonths = useMemo(() => {
-    if (period === 'mtd') {
-      return 1; // month-to-date uses 1 month window for generators
-    }
+    if (period === 'mtd') return 1;
     if (period === 'all' && mode === 'real' && transactions.length > 0) {
       const firstDate = new Date(transactions[0].date);
       const now = new Date();
@@ -483,6 +440,36 @@ const Rentabilidade = () => {
     const found = PERIODS.find(p => p.key === period);
     return found?.months || 12;
   }, [period, mode, transactions]);
+
+  // Compute period start date for benchmark fetching
+  const periodStartDate = useMemo(() => {
+    // Fetch a bit more data than needed for base value lookup
+    const d = getPeriodStartDate(period, periodMonths, transactions);
+    // Go back 1 extra month to ensure we find a base value
+    const padded = new Date(d);
+    padded.setMonth(padded.getMonth() - 1);
+    return padded;
+  }, [period, periodMonths, transactions]);
+
+  // Benchmark codes to fetch (from visible series)
+  const benchmarkCodes = useMemo(() => {
+    const codes: string[] = [];
+    for (const s of visibleSeries) {
+      const code = SERIES_TO_BENCHMARK[s];
+      if (code) codes.push(code);
+    }
+    // Always fetch CDI for reference even if not visible
+    if (!codes.includes('CDI')) codes.push('CDI');
+    return codes;
+  }, [visibleSeries]);
+
+  // Fetch real benchmark data
+  const {
+    data: benchmarkRawData,
+    isLoading: benchmarkLoading,
+    isSyncing: benchmarkSyncing,
+    triggerSync,
+  } = useBenchmarkHistory(benchmarkCodes, periodStartDate);
 
   // Build chart data
   const chartData = useMemo(() => {
@@ -495,10 +482,11 @@ const Rentabilidade = () => {
       carteiraPoints = computeSimulation(portfolio, period, periodMonths, transactions);
     }
 
-    // 2. Benchmark series
-    const benchmarkData = generateBenchmarkSeries(periodMonths);
+    // 2. Normalize benchmark data
+    const actualPeriodStart = getPeriodStartDate(period, periodMonths, transactions);
+    const normalizedBenchmarks = normalizeBenchmarks(benchmarkRawData, actualPeriodStart);
 
-    // 3. Merge: use benchmark dates as base timeline
+    // 3. Build unified timeline (monthly)
     const dateFormat = (d: Date) => d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
     const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
@@ -506,25 +494,67 @@ const Rentabilidade = () => {
     const carteiraByMonth: Record<string, number> = {};
     carteiraPoints.forEach(p => { carteiraByMonth[dateKey(p.date)] = p.cumulativeReturn; });
 
-    // Use the longer timeline
-    const allDates = benchmarkData.length >= carteiraPoints.length ? benchmarkData : benchmarkData;
+    // Index benchmark points by month (use last value in each month)
+    const benchmarkByMonth: Record<string, Record<string, number>> = {};
+    for (const [code, points] of Object.entries(normalizedBenchmarks)) {
+      benchmarkByMonth[code] = {};
+      for (const p of points) {
+        const mk = p.date.slice(0, 7); // YYYY-MM
+        benchmarkByMonth[code][mk] = p.pctReturn; // last value wins
+      }
+    }
 
-    return allDates.map(bd => {
-      const mk = dateKey(bd.date);
-      const carteiraVal = carteiraByMonth[mk] ?? null;
+    // Build timeline from period start to now
+    const now = new Date();
+    const start = new Date(actualPeriodStart.getFullYear(), actualPeriodStart.getMonth(), 1);
+    const months: { date: Date; mk: string; label: string }[] = [];
+    const cur = new Date(start);
+    while (cur <= now) {
+      months.push({
+        date: new Date(cur),
+        mk: dateKey(cur),
+        label: dateFormat(cur),
+      });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    // Add current month if not already there
+    const nowMk = dateKey(now);
+    if (!months.find(m => m.mk === nowMk)) {
+      months.push({ date: now, mk: nowMk, label: dateFormat(now) });
+    }
+
+    // Helper: forward-fill benchmark values for months with no data
+    const forwardFill = (benchCode: string): Record<string, number> => {
+      const raw = benchmarkByMonth[benchCode] ?? {};
+      const filled: Record<string, number> = {};
+      let lastVal = 0; // Start at 0%
+      for (const m of months) {
+        if (raw[m.mk] !== undefined) {
+          lastVal = raw[m.mk];
+        }
+        filled[m.mk] = lastVal;
+      }
+      return filled;
+    };
+
+    // Build filled series for each benchmark
+    const filledCdi = forwardFill('CDI');
+    const filledIpca = forwardFill('IPCA');
+    const filledIbov = forwardFill('IBOV');
+    const filledIfix = forwardFill('IFIX');
+
+    return months.map(m => {
+      const carteiraVal = carteiraByMonth[m.mk];
       return {
-        date: dateFormat(bd.date),
-        carteira: carteiraVal !== null ? +carteiraVal.toFixed(2) : undefined,
-        cdi: +bd.values.cdi.toFixed(2),
-        ipca: +bd.values.ipca.toFixed(2),
-        ifix: +bd.values.ifix.toFixed(2),
-        ibov: +bd.values.ibov.toFixed(2),
-        smll: +bd.values.smll.toFixed(2),
-        idiv: +bd.values.idiv.toFixed(2),
-        ivvb11: +bd.values.ivvb11.toFixed(2),
+        date: m.label,
+        carteira: carteiraVal !== undefined ? +carteiraVal.toFixed(2) : undefined,
+        cdi: filledCdi[m.mk] !== undefined ? +filledCdi[m.mk].toFixed(2) : undefined,
+        ipca: filledIpca[m.mk] !== undefined ? +filledIpca[m.mk].toFixed(2) : undefined,
+        ibov: filledIbov[m.mk] !== undefined ? +filledIbov[m.mk].toFixed(2) : undefined,
+        ifix: filledIfix[m.mk] !== undefined ? +filledIfix[m.mk].toFixed(2) : undefined,
       };
     });
-  }, [mode, period, periodMonths, transactions, portfolio]);
+  }, [mode, period, periodMonths, transactions, portfolio, benchmarkRawData]);
 
   const toggleSeries = useCallback((key: SeriesKey) => {
     setVisibleSeries(prev => {
@@ -682,6 +712,24 @@ const Rentabilidade = () => {
           </PopoverContent>
         </Popover>
 
+        {/* Sync status / manual refresh */}
+        {benchmarkSyncing && (
+          <Badge variant="outline" className="text-[10px] gap-1 animate-pulse">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Atualizando benchmarks…
+          </Badge>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs px-2 gap-1"
+          onClick={() => triggerSync()}
+          disabled={benchmarkSyncing}
+          title="Forçar atualização dos benchmarks"
+        >
+          <RefreshCw className={`h-3 w-3 ${benchmarkSyncing ? 'animate-spin' : ''}`} />
+        </Button>
+
         {/* Active series badges */}
         <div className="flex flex-wrap gap-1.5">
           {ALL_SERIES.filter(s => visibleSeries.includes(s.key)).map(s => (
@@ -727,6 +775,11 @@ const Rentabilidade = () => {
             <Badge variant="outline" className="text-[10px] ml-2">
               {mode === 'real' ? 'REAL' : 'SIMULAÇÃO'}
             </Badge>
+            {benchmarkLoading && (
+              <Badge variant="outline" className="text-[10px] ml-1 animate-pulse">
+                Carregando…
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
