@@ -320,7 +320,7 @@ const Dashboard = () => {
       </motion.div>
 
       {/* KPIs */}
-      <motion.div variants={fadeUp} custom={1} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <motion.div variants={fadeUp} custom={1} className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-4 gap-3 2xl:gap-4">
         {[
           { label: 'Patrimônio Total', value: formatBRL(totalPatrimony), sub: `${totalAssets} ativos`, accent: true, glow: true },
           { label: 'Proventos 12m', value: formatBRL(totalDiv12m), sub: `~${formatBRL(totalDiv12m / 12)}/mês` },
@@ -359,7 +359,7 @@ const Dashboard = () => {
         </div>
         <div className="p-5 pt-3">
           {perfChartData.length > 2 ? (
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={340}>
               <AreaChart data={perfChartData} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                 <defs>
                   <linearGradient id="gradCarteira" x1="0" y1="0" x2="0" y2="1">
@@ -455,7 +455,7 @@ const Dashboard = () => {
           <Zap className="h-3.5 w-3.5 text-primary" />
           <h2 className="section-title">Insights</h2>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-4 gap-3 2xl:gap-4">
           {insights.map((ins, i) => (
             <motion.div
               key={ins.label}
@@ -474,9 +474,9 @@ const Dashboard = () => {
       </motion.div>
 
       {/* Main grid: Allocation + Sidebar */}
-      <motion.div variants={fadeUp} custom={4} className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <motion.div variants={fadeUp} custom={4} className="grid grid-cols-1 lg:grid-cols-5 2xl:grid-cols-7 gap-4">
         {/* Allocation Donut */}
-        <div className="lg:col-span-3 glass-card overflow-hidden">
+        <div className="lg:col-span-3 2xl:col-span-5 glass-card overflow-hidden">
           <div className="p-5 pb-0">
             <h2 className="section-title">Alocação por Classe</h2>
           </div>
@@ -525,7 +525,7 @@ const Dashboard = () => {
         </div>
 
         {/* Right column */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-2 2xl:col-span-2 space-y-4">
           <motion.div whileHover={{ y: -2, transition: { duration: 0.2 } }} className="glass-card p-5">
             <div className="flex items-center gap-2 mb-4">
               <DollarSign className="h-3.5 w-3.5 text-primary" />
@@ -574,7 +574,7 @@ const Dashboard = () => {
             <ShieldAlert className="h-3.5 w-3.5 text-negative" />
             <h2 className="section-title">Alertas</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-2">
             {problems.map((problem, i) => (
               <motion.div
                 key={i}
