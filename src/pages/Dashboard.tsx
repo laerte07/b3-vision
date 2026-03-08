@@ -273,6 +273,18 @@ const Dashboard = () => {
         ))}
       </div>
 
+      {/* Row 4: Contributions */}
+      <div className="grid grid-cols-3 gap-4">
+        {contribCards.map((card) => (
+          <Card key={card.label}>
+            <CardContent className="pt-6 text-center">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</p>
+              <p className="text-lg font-bold mt-1 font-mono text-primary">{card.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Pie chart */}
         <Card>
