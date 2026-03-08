@@ -42,8 +42,9 @@ const PRESETS: { label: string; icon: React.ReactNode; keys: SeriesKey[] }[] = [
   { label: 'Internacional', icon: <Globe className="h-3 w-3" />, keys: ['carteira', 'ivvb11'] },
 ];
 
-type PeriodKey = '6m' | '12m' | '24m' | '60m' | 'all';
+type PeriodKey = 'mtd' | '6m' | '12m' | '24m' | '60m' | 'all';
 const PERIODS: { key: PeriodKey; label: string; months: number }[] = [
+  { key: 'mtd', label: 'Mês atual', months: -1 }, // -1 = month-to-date
   { key: '6m', label: '6 meses', months: 6 },
   { key: '12m', label: '12 meses', months: 12 },
   { key: '24m', label: '2 anos', months: 24 },
@@ -315,6 +316,9 @@ const Rentabilidade = () => {
 
   // Determine period months
   const periodMonths = useMemo(() => {
+    if (period === 'mtd') {
+      return 1; // month-to-date uses 1 month window for generators
+    }
     if (period === 'all' && mode === 'real' && transactions.length > 0) {
       const firstDate = new Date(transactions[0].date);
       const now = new Date();
@@ -334,7 +338,12 @@ const Rentabilidade = () => {
       // Trim to period
       if (period !== 'all' && carteiraPoints.length > 0) {
         const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - periodMonths);
+        if (period === 'mtd') {
+          cutoff.setDate(1);
+          cutoff.setHours(0, 0, 0, 0);
+        } else {
+          cutoff.setMonth(cutoff.getMonth() - periodMonths);
+        }
         const filtered = carteiraPoints.filter(p => p.date >= cutoff);
         if (filtered.length > 0) {
           // Rebase to 0%
