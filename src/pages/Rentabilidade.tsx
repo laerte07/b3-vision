@@ -339,6 +339,19 @@ interface UnifiedResult {
   hasCarteiraData: boolean;
 }
 
+function computeEffectiveEndDate(
+  benchmarkRawData: BenchmarkPoint[],
+): string {
+  const today = toDateStr(new Date());
+  // Find the latest date across all benchmark data
+  let latestBenchmark = '';
+  for (const p of benchmarkRawData) {
+    if (p.date > latestBenchmark && p.date <= today) latestBenchmark = p.date;
+  }
+  // Use the latest benchmark date if available, otherwise today
+  return latestBenchmark || today;
+}
+
 function buildUnifiedData(
   mode: Mode,
   period: PeriodKey,
@@ -347,14 +360,18 @@ function buildUnifiedData(
   benchmarkRawData: BenchmarkPoint[],
 ): UnifiedResult {
   const periodStart = getPeriodStartDate(period, transactions);
-  const now = new Date();
+  const requestedEnd = new Date();
   const periodStartStr = toDateStr(periodStart);
-  const nowStr = toDateStr(now);
+  const requestedEndStr = toDateStr(requestedEnd);
 
-  // 1. Compute portfolio return
+  // ── Effective end date: last date with real data ──
+  const effectiveEndStr = computeEffectiveEndDate(benchmarkRawData);
+  const effectiveEnd = new Date(effectiveEndStr + 'T00:00:00');
+
+  // 1. Compute portfolio return (use effectiveEnd)
   let carteiraFinal: number | null = null;
   if (mode === 'real') {
-    carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, nowStr);
+    carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, effectiveEndStr);
   } else {
     carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr);
   }
@@ -364,15 +381,14 @@ function buildUnifiedData(
   // 2. Normalize benchmarks to daily % returns
   const benchmarkDaily = normalizeBenchmarkDaily(benchmarkRawData, periodStartStr);
 
-  // 3. Build timeline (daily for <=6m, weekly sampling for longer)
-  const allDays = buildDailyTimeline(periodStart, now);
-  const useDaily = allDays.length <= 200; // ~6.5 months
+  // 3. Build timeline up to effectiveEnd (not today)
+  const allDays = buildDailyTimeline(periodStart, effectiveEnd);
+  const useDaily = allDays.length <= 200;
 
   let timelineDays: string[];
   if (useDaily) {
     timelineDays = allDays;
   } else {
-    // Sample: every 7 days + first + last
     timelineDays = [allDays[0]];
     for (let i = 7; i < allDays.length - 1; i += 7) {
       timelineDays.push(allDays[i]);
@@ -397,8 +413,6 @@ function buildUnifiedData(
   const chartData: UnifiedChartPoint[] = [];
   const finalValues: Partial<Record<SeriesKey, number>> = {};
 
-  // For carteira: linear interpolation from 0 to final value
-  // (we don't have daily portfolio prices, so interpolate smoothly)
   for (const dateStr of timelineDays) {
     const dayIndex = allDays.indexOf(dateStr);
     const fraction = totalDays > 0 ? dayIndex / totalDays : 1;
@@ -410,7 +424,6 @@ function buildUnifiedData(
 
     // Carteira (interpolated)
     if (carteiraFinal !== null) {
-      // Compound interpolation: (1 + totalReturn)^fraction - 1
       const totalReturnDec = carteiraFinal / 100;
       const interpPct = totalReturnDec >= -1
         ? (Math.pow(1 + totalReturnDec, fraction) - 1) * 100
@@ -423,13 +436,10 @@ function buildUnifiedData(
       const seriesKey = BENCHMARK_TO_SERIES[code];
       if (!seriesKey) continue;
 
-      // Find closest available value on or before this date
       let val: number | undefined;
-      // Try exact date first
       if (daily[dateStr] !== undefined) {
         val = daily[dateStr];
       } else {
-        // Forward-fill: find last available value before this date
         let lastVal = 0;
         for (const d of allDays) {
           if (d > dateStr) break;
@@ -454,8 +464,19 @@ function buildUnifiedData(
   }
 
   if (import.meta.env.DEV) {
+    // Per-benchmark last valid date
+    const benchLastDates: Record<string, string> = {};
+    for (const [code, daily] of Object.entries(benchmarkDaily)) {
+      const dates = Object.keys(daily);
+      benchLastDates[code] = dates.length > 0 ? dates[dates.length - 1] : 'N/A';
+    }
+
     console.group('[UnifiedData] Resultado');
-    console.log('Modo:', mode, '| Período:', period, '| Timeline:', periodStartStr, '→', nowStr);
+    console.log('Modo:', mode, '| Período:', period);
+    console.log('requestedEndDate:', requestedEndStr);
+    console.log('effectiveEndDate:', effectiveEndStr);
+    console.log('periodStartStr:', periodStartStr);
+    console.log('lastValidDate por benchmark:', benchLastDates);
     console.log('Pontos no gráfico:', chartData.length);
     console.log('Valores finais:', finalValues);
     console.log('Tem dados carteira:', hasCarteiraData);
