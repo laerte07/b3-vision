@@ -15,6 +15,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { usePortfolio, useRefreshMarket } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
+import { useContributions } from '@/hooks/useContributions';
 import { formatBRL, formatPct } from '@/lib/format';
 
 const COLORS = [
@@ -31,6 +32,20 @@ const Dashboard = () => {
   const { data: classes = [] } = useAssetClasses();
   const { data: targets = [] } = useClassTargets();
   const refreshMarket = useRefreshMarket();
+  const { data: contributions = [] } = useContributions();
+
+  // Contribution stats
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthContribTotal = contributions
+    .filter(c => { const d = new Date(c.contribution_date); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; })
+    .reduce((s, c) => s + c.total_amount, 0);
+  const yearContribTotal = contributions
+    .filter(c => new Date(c.contribution_date).getFullYear() === currentYear)
+    .reduce((s, c) => s + c.total_amount, 0);
+  const yearContribCount = contributions.filter(c => new Date(c.contribution_date).getFullYear() === currentYear).length;
+  const avgMonthlyContrib = yearContribCount > 0 ? yearContribTotal / Math.max(1, currentMonth + 1) : 0;
 
   // --- Computed values (per class) ---
   const classValues = classes
