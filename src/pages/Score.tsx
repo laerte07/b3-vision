@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { fadeUp, stagger } from '@/lib/motion-variants';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -645,8 +647,8 @@ const Score = () => {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <motion.div className="space-y-6" initial="hidden" animate="visible" variants={stagger}>
+      <motion.div variants={fadeUp} custom={0} className="flex items-center justify-between">
         <div>
           <p className="kpi-label mb-1">Análise Quantitativa</p>
           <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
@@ -663,7 +665,7 @@ const Score = () => {
         >
           <Save className="h-4 w-4" /> Salvar Snapshot
         </Button>
-      </div>
+      </motion.div>
 
       {stocks.length === 0 ? (
         <Card>
