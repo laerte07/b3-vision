@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Download, Upload, Shield, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets, useUpsertClassTarget } from '@/hooks/useClassTargets';
