@@ -315,7 +315,7 @@ const Portfolio = () => {
               </TabsContent>
             );
           })}
-        </Tabs>
+        </Tabs></motion.div>
       )}
 
       <Dialog open={!!editAsset} onOpenChange={open => { if (!open) setEditAsset(null); }}>
@@ -333,7 +333,7 @@ const Portfolio = () => {
       </Dialog>
 
       <FundamentalsDrawer asset={fundAsset} open={!!fundAsset} onOpenChange={open => { if (!open) setFundAsset(null); }} />
-    </div>
+    </motion.div>
   );
 };
 
