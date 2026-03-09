@@ -925,11 +925,11 @@ const Score = () => {
                 </TableBody>
               </Table>
             </CardContent>
-          </Card>
+          </Card></motion.div>
 
           {/* Alerts */}
           {allAlerts.length > 0 && (
-            <Card>
+            <motion.div variants={fadeUp} custom={4}><Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-4 w-4 text-destructive" /> Alertas Inteligentes
@@ -945,11 +945,11 @@ const Score = () => {
                   ))}
                 </div>
               </CardContent>
-            </Card>
+            </Card></motion.div>
           )}
         </>
       )}
-    </div>
+    </motion.div>
   );
 };
 
