@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { fadeUp, stagger } from '@/lib/motion-variants';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -143,8 +145,8 @@ const Portfolio = () => {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <motion.div className="space-y-4 sm:space-y-6" initial="hidden" animate="visible" variants={stagger}>
+      <motion.div variants={fadeUp} custom={0} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <p className="kpi-label mb-1">Posições</p>
           <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Carteira</h1>
@@ -179,14 +181,14 @@ const Portfolio = () => {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
+      </motion.div>
 
       {portfolio.length === 0 ? (
         <Card className="p-12 text-center text-muted-foreground text-sm">
           Nenhum ativo cadastrado. Clique em "Novo Ativo" para começar.
         </Card>
       ) : (
-        <Tabs defaultValue={defaultTab}>
+        <motion.div variants={fadeUp} custom={1}><Tabs defaultValue={defaultTab}>
           <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
             {classesWithPositions.map(cls => {
               const count = portfolio.filter(p => p.class_id === cls.id).length;
