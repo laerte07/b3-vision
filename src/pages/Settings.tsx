@@ -22,7 +22,8 @@ import {
   Download, Upload, Shield, Save, User, Lock, Database,
   Settings as SettingsIcon, Eye, EyeOff, Users, BarChart3,
   LogOut, AlertTriangle, Trash2, CheckCircle2, XCircle,
-  Activity, CreditCard, Mail, Calendar, Clock,
+  Activity, CreditCard, Mail, Calendar, Clock, Search,
+  ChevronLeft, ChevronRight, Filter, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,8 @@ import {
   useUpdateProfile,
   useIsAdmin,
   useAdminMetrics,
+  useAdminUsers,
+  useAdminActivity,
   useChangePassword,
   useSignOutOthers,
   useDeleteAccount,
@@ -83,6 +86,16 @@ const Settings = () => {
   // Delete account
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Admin state
+  const [adminUsersPage, setAdminUsersPage] = useState(1);
+  const [adminUsersSearch, setAdminUsersSearch] = useState('');
+  const [adminActivityPage, setAdminActivityPage] = useState(1);
+  const [adminActivityFilter, setAdminActivityFilter] = useState('all');
+
+  // Admin queries
+  const { data: adminUsersData } = useAdminUsers(adminUsersPage, adminUsersSearch);
+  const { data: adminActivityData } = useAdminActivity(adminActivityPage, adminActivityFilter);
 
   // Class targets
   const [editTargets, setEditTargets] = useState<Record<string, { target: string; lower: string; upper: string }>>({});
