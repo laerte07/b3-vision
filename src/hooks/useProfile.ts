@@ -61,19 +61,61 @@ export const useIsAdmin = () => {
 
 // Fetch admin metrics
 export interface AdminMetrics {
-  totalUsers: number;
-  activeUsers: number;
-  totalAssets: number;
-  totalPositions: number;
-  totalContributions: number;
-  totalTransactions: number;
-  recentUsers: Array<{
+  total_users: number;
+  active_users: number;
+  users_with_portfolios: number;
+  total_assets: number;
+  total_positions: number;
+  total_contributions: number;
+  total_scores: number;
+  recent_activity: number;
+  recent_users: Array<{
     id: string;
     email: string;
     created_at: string;
     last_sign_in_at: string | null;
-    confirmed_at: string | null;
   }>;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  confirmed_at: string | null;
+  assets_count: number;
+  contributions_count: number;
+  positions_count: number;
+  status: string;
+}
+
+export interface AdminUsersResponse {
+  users: AdminUser[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+export interface AdminActivityLog {
+  id: string;
+  user_email: string;
+  action: string;
+  details: string | null;
+  created_at: string;
+}
+
+export interface AdminActivityResponse {
+  logs: AdminActivityLog[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
 }
 
 export const useAdminMetrics = () => {
@@ -88,6 +130,38 @@ export const useAdminMetrics = () => {
       return data as AdminMetrics;
     },
     refetchInterval: 60000, // Refresh every minute
+  });
+};
+
+export const useAdminUsers = (page: number, search: string) => {
+  const { isAdmin } = useIsAdmin();
+
+  return useQuery({
+    queryKey: ['admin-users', page, search],
+    enabled: isAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('admin-metrics', {
+        body: { action: 'users', page, search },
+      });
+      if (error) throw error;
+      return data as AdminUsersResponse;
+    },
+  });
+};
+
+export const useAdminActivity = (page: number, filter: string) => {
+  const { isAdmin } = useIsAdmin();
+
+  return useQuery({
+    queryKey: ['admin-activity', page, filter],
+    enabled: isAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('admin-metrics', {
+        body: { action: 'activity', page, filter },
+      });
+      if (error) throw error;
+      return data as AdminActivityResponse;
+    },
   });
 };
 
