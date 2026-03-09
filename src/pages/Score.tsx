@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { fadeUp, stagger } from '@/lib/motion-variants';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -645,8 +647,8 @@ const Score = () => {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <motion.div className="space-y-6" initial="hidden" animate="visible" variants={stagger}>
+      <motion.div variants={fadeUp} custom={0} className="flex items-center justify-between">
         <div>
           <p className="kpi-label mb-1">Análise Quantitativa</p>
           <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
@@ -663,7 +665,7 @@ const Score = () => {
         >
           <Save className="h-4 w-4" /> Salvar Snapshot
         </Button>
-      </div>
+      </motion.div>
 
       {stocks.length === 0 ? (
         <Card>
@@ -673,7 +675,7 @@ const Score = () => {
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <motion.div variants={fadeUp} custom={1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Radar */}
             <Card>
               <CardHeader>
@@ -819,11 +821,11 @@ const Score = () => {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
 
           {/* History */}
           {historyChart.length > 1 && (
-            <Card>
+            <motion.div variants={fadeUp} custom={2}><Card>
               <CardHeader>
                 <CardTitle className="text-base">Histórico de Score – {selectedTicker}</CardTitle>
               </CardHeader>
@@ -840,11 +842,11 @@ const Score = () => {
                   </ResponsiveContainer>
                 </div>
               </CardContent>
-            </Card>
+            </Card></motion.div>
           )}
 
           {/* Ranking */}
-          <Card>
+          <motion.div variants={fadeUp} custom={3}><Card>
             <CardHeader>
               <CardTitle className="text-base">Ranking da Carteira</CardTitle>
             </CardHeader>
@@ -923,11 +925,11 @@ const Score = () => {
                 </TableBody>
               </Table>
             </CardContent>
-          </Card>
+          </Card></motion.div>
 
           {/* Alerts */}
           {allAlerts.length > 0 && (
-            <Card>
+            <motion.div variants={fadeUp} custom={4}><Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-4 w-4 text-destructive" /> Alertas Inteligentes
@@ -943,11 +945,11 @@ const Score = () => {
                   ))}
                 </div>
               </CardContent>
-            </Card>
+            </Card></motion.div>
           )}
         </>
       )}
-    </div>
+    </motion.div>
   );
 };
 

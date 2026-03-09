@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { fadeUp, stagger } from '@/lib/motion-variants';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -656,15 +658,15 @@ const Rentabilidade = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
+    <motion.div className="space-y-6" initial="hidden" animate="visible" variants={stagger}>
+      <motion.div variants={fadeUp} custom={0}>
         <p className="kpi-label mb-1">Performance</p>
         <h1 className="text-xl font-semibold tracking-tight">Rentabilidade</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Compare a performance da sua carteira com benchmarks</p>
-      </div>
+      </motion.div>
 
       {/* Mode + Period + Series controls */}
-      <div className="flex flex-wrap items-center gap-3">
+      <motion.div variants={fadeUp} custom={1} className="flex flex-wrap items-center gap-3">
         {/* Mode selector */}
         <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 bg-muted/30">
           <Button
@@ -787,7 +789,7 @@ const Rentabilidade = () => {
             </Badge>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* Mode info badge */}
       <div className="flex items-center gap-2">
@@ -1007,7 +1009,7 @@ const Rentabilidade = () => {
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 };
 
