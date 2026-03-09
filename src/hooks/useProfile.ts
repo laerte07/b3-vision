@@ -140,11 +140,14 @@ export const useAdminUsers = (page: number, search: string) => {
     queryKey: ['admin-users', page, search],
     enabled: isAdmin,
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-metrics', {
-        body: { action: 'users', page, search },
-      });
-      if (error) throw error;
-      return data as AdminUsersResponse;
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const session = (await supabase.auth.getSession()).data.session;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/admin-metrics?action=users&page=${page}&limit=20&search=${encodeURIComponent(search)}`,
+        { headers: { Authorization: `Bearer ${session?.access_token}` } }
+      );
+      if (!res.ok) throw new Error('Failed to fetch users');
+      return await res.json() as AdminUsersResponse;
     },
   });
 };
@@ -156,11 +159,14 @@ export const useAdminActivity = (page: number, filter: string) => {
     queryKey: ['admin-activity', page, filter],
     enabled: isAdmin,
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke('admin-metrics', {
-        body: { action: 'activity', page, filter },
-      });
-      if (error) throw error;
-      return data as AdminActivityResponse;
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const session = (await supabase.auth.getSession()).data.session;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/admin-metrics?action=activity&page=${page}&limit=50&filter=${filter}`,
+        { headers: { Authorization: `Bearer ${session?.access_token}` } }
+      );
+      if (!res.ok) throw new Error('Failed to fetch activity');
+      return await res.json() as AdminActivityResponse;
     },
   });
 };
