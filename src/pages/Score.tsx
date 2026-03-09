@@ -821,11 +821,11 @@ const Score = () => {
                 )}
               </CardContent>
             </Card>
-          </div>
+          </motion.div>
 
           {/* History */}
           {historyChart.length > 1 && (
-            <Card>
+            <motion.div variants={fadeUp} custom={2}><Card>
               <CardHeader>
                 <CardTitle className="text-base">Histórico de Score – {selectedTicker}</CardTitle>
               </CardHeader>
@@ -842,11 +842,11 @@ const Score = () => {
                   </ResponsiveContainer>
                 </div>
               </CardContent>
-            </Card>
+            </Card></motion.div>
           )}
 
           {/* Ranking */}
-          <Card>
+          <motion.div variants={fadeUp} custom={3}><Card>
             <CardHeader>
               <CardTitle className="text-base">Ranking da Carteira</CardTitle>
             </CardHeader>
