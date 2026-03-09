@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Download, Upload, Shield, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets, useUpsertClassTarget } from '@/hooks/useClassTargets';
@@ -89,6 +90,13 @@ const Settings = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Calculate sum of all target percents for validation
+  const targetSum = classes.reduce((sum, cls) => {
+    const vals = getTargetValues(cls.id);
+    return sum + Number(vals.target);
+  }, 0);
+  const targetSumOk = Math.abs(targetSum - 100) < 0.01;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -97,9 +105,17 @@ const Settings = () => {
       </div>
 
       <div className="glass-card overflow-hidden">
-        <div className="p-4 border-b border-border/30 flex items-center gap-2">
-          <Shield className="h-3.5 w-3.5 text-primary" />
-          <h3 className="section-title">Metas por Classe (%)</h3>
+        <div className="p-4 border-b border-border/30 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5 text-primary" />
+            <h3 className="section-title">Metas por Classe (%)</h3>
+          </div>
+          <span className={cn(
+            'text-xs font-mono font-medium px-2 py-0.5 rounded',
+            targetSumOk ? 'bg-positive/10 text-positive' : 'bg-negative/10 text-negative'
+          )}>
+            Soma: {targetSum.toFixed(1)}%{!targetSumOk && ' ≠ 100%'}
+          </span>
         </div>
         <Table>
           <TableHeader>

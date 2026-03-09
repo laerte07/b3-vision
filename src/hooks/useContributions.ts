@@ -170,15 +170,58 @@ export const useConfirmContribution = () => {
 
 export const useDeleteContribution = () => {
   const qc = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (!user) throw new Error('Não autenticado');
+
+      // 1. Fetch contribution items BEFORE deleting
+      const { data: items, error: itemsErr } = await supabase
+        .from('contribution_items')
+        .select('asset_id, quantity, unit_price')
+        .eq('contribution_id', id);
+      if (itemsErr) throw itemsErr;
+
+      // 2. Revert positions for each item
+      for (const item of (items ?? [])) {
+        const qty = Number(item.quantity);
+        if (qty <= 0) continue;
+
+        const { data: pos } = await supabase
+          .from('positions')
+          .select('id, quantity, avg_price')
+          .eq('user_id', user.id)
+          .eq('asset_id', item.asset_id)
+          .maybeSingle();
+
+        if (pos) {
+          const oldQty = Number(pos.quantity);
+          const oldAvg = Number(pos.avg_price);
+          const newQty = oldQty - qty;
+
+          if (newQty <= 0) {
+            // Position fully reversed — reset to zero
+            await supabase.from('positions').update({ quantity: 0, avg_price: 0 }).eq('id', pos.id);
+          } else {
+            // Reverse weighted avg: old_avg_before = (current_avg * current_qty - item_price * item_qty) / (current_qty - item_qty)
+            const reversedAvg = ((oldAvg * oldQty) - (Number(item.unit_price) * qty)) / newQty;
+            await supabase.from('positions').update({
+              quantity: newQty,
+              avg_price: Math.max(0, reversedAvg),
+            }).eq('id', pos.id);
+          }
+        }
+      }
+
+      // 3. Delete contribution (cascade deletes items via FK)
       const { error } = await supabase.from('contributions').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contributions'] });
-      toast.success('Aporte excluído');
+      qc.invalidateQueries({ queryKey: ['portfolio'] });
+      toast.success('Aporte excluído e posições revertidas');
     },
     onError: (err: any) => toast.error(err.message),
   });

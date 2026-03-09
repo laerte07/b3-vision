@@ -26,10 +26,10 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions } from '@/hooks/useContributions';
 import { useTransactions, Transaction } from '@/hooks/useTransactions';
 import { useBenchmarkHistory, BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
+import { buildUnifiedData } from '@/lib/return-engine';
 import { formatBRL, formatPct } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-
 
 // ─── Chart colors ───────────────────────────────────────────
 const CHART_COLORS = [
@@ -46,43 +46,6 @@ const PERF_SERIES = [
   { key: 'cdi', label: 'CDI', color: 'hsl(199, 89%, 48%)' },
   { key: 'ibov', label: 'IBOV', color: 'hsl(270, 67%, 62%)' },
 ] as const;
-
-// ─── Helpers ────────────────────────────────────────────────
-function toDateStr(d: Date): string { return d.toISOString().slice(0, 10); }
-
-function buildDailyTimeline(start: Date, end: Date): string[] {
-  const dates: string[] = [];
-  const cur = new Date(start); cur.setHours(0, 0, 0, 0);
-  const endN = new Date(end); endN.setHours(0, 0, 0, 0);
-  while (cur <= endN) { dates.push(toDateStr(cur)); cur.setDate(cur.getDate() + 1); }
-  return dates;
-}
-
-function normalizeBenchmarks(
-  data: BenchmarkPoint[], startStr: string,
-): Record<string, Record<string, number>> {
-  const grouped: Record<string, BenchmarkPoint[]> = {};
-  for (const p of data) {
-    if (!grouped[p.benchmark_code]) grouped[p.benchmark_code] = [];
-    grouped[p.benchmark_code].push(p);
-  }
-  const result: Record<string, Record<string, number>> = {};
-  for (const [code, points] of Object.entries(grouped)) {
-    let base: number | null = null;
-    for (const p of points) { if (p.date <= startStr) base = p.value; else break; }
-    if (base === null && points.length > 0) base = points[0].value;
-    if (!base || base === 0) continue;
-    const daily: Record<string, number> = {};
-    for (const p of points) {
-      if (p.date < startStr) continue;
-      daily[p.date] = ((p.value / base) - 1) * 100;
-    }
-    result[code] = daily;
-  }
-  return result;
-}
-
-const BENCHMARK_MAP: Record<string, string> = { CDI: 'cdi', IBOV: 'ibov' };
 
 // ─── Dashboard ──────────────────────────────────────────────
 const Dashboard = () => {
@@ -200,71 +163,14 @@ const Dashboard = () => {
     { icon: PieIcon, label: 'Classe Dominante', value: classAllocations[0]?.name || '-', detail: classAllocations[0] ? `${topClassPct.toFixed(1)}%` : '', color: 'text-chart-4' },
   ];
 
-  // ─── Build performance chart data ─────────────────────────
+  // ─── Build performance chart data using shared engine (real TWR) ─
   const perfChartData = useMemo(() => {
-    const startStr = toDateStr(startDate);
-    const endStr = toDateStr(new Date());
-    const timeline = buildDailyTimeline(startDate, new Date());
-    if (timeline.length === 0) return [];
-
-    const benchNorm = normalizeBenchmarks(benchmarkData, startStr);
-
-    // Build simplified portfolio return using simulation approach
-    const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-    const currentPriceMap: Record<string, number> = {};
-    portfolio.forEach(a => { if (a.last_price != null) currentPriceMap[a.id] = a.last_price; });
-
-    // Compute portfolio simulation return (single value, then interpolate linearly for now)
-    const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
-    const totalVal = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
-    let portfolioReturnPct = 0;
-    if (totalVal > 0) {
-      for (const asset of activeAssets) {
-        const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalVal;
-        const currentPrice = asset.last_price!;
-        const assetTxs = sorted.filter(t => t.asset_id === asset.id);
-        let startPrice: number | null = null;
-        for (const t of assetTxs) {
-          if (t.date <= startStr) startPrice = t.price; else break;
-        }
-        if (startPrice === null) {
-          const firstAfter = assetTxs.find(t => t.date > startStr);
-          if (firstAfter) startPrice = firstAfter.price;
-        }
-        if (!startPrice || startPrice <= 0) startPrice = asset.avg_price;
-        if (startPrice <= 0) continue;
-        portfolioReturnPct += weight * ((currentPrice / startPrice) - 1) * 100;
-      }
-    }
-
-    // Sample ~90 points for smooth chart
-    const step = Math.max(1, Math.floor(timeline.length / 90));
-    const sampled = timeline.filter((_, i) => i % step === 0 || i === timeline.length - 1);
-
-    return sampled.map((date, idx) => {
-      const progress = sampled.length > 1 ? idx / (sampled.length - 1) : 1;
-      const entry: Record<string, any> = {
-        date,
-        label: date.slice(5).replace('-', '/'),
-        carteira: +(portfolioReturnPct * progress).toFixed(2),
-      };
-      // Add benchmarks
-      for (const [code, daily] of Object.entries(benchNorm)) {
-        const seriesKey = BENCHMARK_MAP[code];
-        if (!seriesKey) continue;
-        // Find closest date
-        let val = daily[date];
-        if (val === undefined) {
-          // Use last known value
-          const dates = Object.keys(daily).sort();
-          const closest = dates.filter(d => d <= date).pop();
-          val = closest ? daily[closest] : 0;
-        }
-        entry[seriesKey] = +val.toFixed(2);
-      }
-      return entry;
-    });
-  }, [benchmarkData, portfolio, transactions, startDate]);
+    const { chartData } = buildUnifiedData('real', '12m', transactions, portfolio, benchmarkData);
+    return chartData.map(pt => ({
+      ...pt,
+      label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
+    }));
+  }, [benchmarkData, portfolio, transactions]);
 
   // ─── Render ───────────────────────────────────────────────
   if (isLoading) {
