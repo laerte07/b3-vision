@@ -22,7 +22,8 @@ import {
   Download, Upload, Shield, Save, User, Lock, Database,
   Settings as SettingsIcon, Eye, EyeOff, Users, BarChart3,
   LogOut, AlertTriangle, Trash2, CheckCircle2, XCircle,
-  Activity, CreditCard, Mail, Calendar, Clock,
+  Activity, CreditCard, Mail, Calendar, Clock, Search,
+  ChevronLeft, ChevronRight, Filter, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,8 @@ import {
   useUpdateProfile,
   useIsAdmin,
   useAdminMetrics,
+  useAdminUsers,
+  useAdminActivity,
   useChangePassword,
   useSignOutOthers,
   useDeleteAccount,
@@ -83,6 +86,16 @@ const Settings = () => {
   // Delete account
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Admin state
+  const [adminUsersPage, setAdminUsersPage] = useState(1);
+  const [adminUsersSearch, setAdminUsersSearch] = useState('');
+  const [adminActivityPage, setAdminActivityPage] = useState(1);
+  const [adminActivityFilter, setAdminActivityFilter] = useState('all');
+
+  // Admin queries
+  const { data: adminUsersData } = useAdminUsers(adminUsersPage, adminUsersSearch);
+  const { data: adminActivityData } = useAdminActivity(adminActivityPage, adminActivityFilter);
 
   // Class targets
   const [editTargets, setEditTargets] = useState<Record<string, { target: string; lower: string; upper: string }>>({});
@@ -719,8 +732,7 @@ const Settings = () => {
 
           {/* ─── ADMIN TAB ─── */}
           {isAdmin && (
-            <TabsContent value="admin" className="space-y-4">
-              {/* Admin Header */}
+            <TabsContent value="admin" className="space-y-6">
               <div className="glass-card p-6 border-primary/20 bg-primary/[0.02]">
                 <div className="flex items-center gap-3">
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -734,82 +746,155 @@ const Settings = () => {
                 </div>
               </div>
 
-              {/* Metrics Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                  { label: 'Usuários Totais', value: adminMetrics?.totalUsers ?? '—', icon: Users, color: 'text-primary' },
-                  { label: 'Usuários Ativos', value: adminMetrics?.activeUsers ?? '—', icon: Activity, color: 'text-positive' },
-                  { label: 'Ativos Cadastrados', value: adminMetrics?.totalAssets ?? '—', icon: CreditCard, color: 'text-chart-2' },
-                  { label: 'Aportes Registrados', value: adminMetrics?.totalContributions ?? '—', icon: BarChart3, color: 'text-chart-4' },
+                  { label: 'Usuários Totais', value: adminMetrics?.total_users ?? '—', icon: Users, color: 'text-primary' },
+                  { label: 'Usuários Ativos', value: adminMetrics?.active_users ?? '—', icon: Activity, color: 'text-positive' },
+                  { label: 'Com Carteiras', value: adminMetrics?.users_with_portfolios ?? '—', icon: CreditCard, color: 'text-chart-2' },
+                  { label: 'Atividade Recente', value: adminMetrics?.recent_activity ?? '—', icon: Clock, color: 'text-chart-4' },
                 ].map(metric => (
-                  <div key={metric.label} className="glass-card p-4">
-                    <div className="flex items-center gap-2 mb-2">
+                  <div key={metric.label} className="glass-card p-5">
+                    <div className="flex items-center gap-2 mb-3">
                       <metric.icon className={cn('h-4 w-4', metric.color)} />
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">{metric.label}</span>
                     </div>
-                    <p className="text-2xl font-semibold font-mono">{metric.value}</p>
+                    <p className="text-2xl font-bold font-mono mb-1">{metric.value}</p>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">{metric.label}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Additional Metrics */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="glass-card p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Database className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Posições</span>
+              <div className="grid grid-cols-3 gap-4">
+                {[
+                  { label: 'Ativos', value: adminMetrics?.total_assets ?? '—', icon: Database },
+                  { label: 'Aportes', value: adminMetrics?.total_contributions ?? '—', icon: BarChart3 },
+                  { label: 'Posições', value: adminMetrics?.total_positions ?? '—', icon: TrendingUp },
+                ].map(m => (
+                  <div key={m.label} className="glass-card p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <m.icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">{m.label}</span>
+                    </div>
+                    <p className="text-xl font-bold font-mono">{m.value}</p>
                   </div>
-                  <p className="text-xl font-semibold font-mono">{adminMetrics?.totalPositions ?? '—'}</p>
-                </div>
-                <div className="glass-card p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Transações</span>
-                  </div>
-                  <p className="text-xl font-semibold font-mono">{adminMetrics?.totalTransactions ?? '—'}</p>
-                </div>
+                ))}
               </div>
 
-              {/* Users Table */}
+              {/* Users Management */}
               <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-border/30 flex items-center gap-2">
-                  <Users className="h-3.5 w-3.5 text-primary" />
-                  <h3 className="section-title">Usuários Recentes</h3>
+                <div className="p-4 border-b border-border/30">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Users className="h-4 w-4 text-primary" />
+                    <h3 className="font-semibold">Gestão de Usuários</h3>
+                  </div>
+                  <div className="relative max-w-xs">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Buscar por e-mail ou nome..." value={adminUsersSearch} onChange={(e) => { setAdminUsersSearch(e.target.value); setAdminUsersPage(1); }} className="pl-10 h-9" />
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-b border-border/30">
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">E-mail</TableHead>
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Cadastro</TableHead>
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Último acesso</TableHead>
-                        <TableHead className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(adminMetrics?.recentUsers ?? []).map(u => (
-                        <TableRow key={u.id} className="data-row">
-                          <TableCell className="font-mono text-sm">{u.email}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{formatDate(u.created_at)}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{formatDate(u.last_sign_in_at)}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={cn('text-xs', u.confirmed_at ? 'border-positive/30 text-positive' : 'border-warning/30 text-warning')}>
-                              {u.confirmed_at ? 'Verificado' : 'Pendente'}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {(!adminMetrics?.recentUsers || adminMetrics.recentUsers.length === 0) && (
-                        <TableRow>
-                          <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-8">
-                            Carregando usuários...
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                {adminUsersData?.users && (
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-b border-border/30">
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">E-mail</TableHead>
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">Nome</TableHead>
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">Cadastro</TableHead>
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">Status</TableHead>
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">Ativos</TableHead>
+                            <TableHead className="text-xs font-medium text-muted-foreground uppercase">Aportes</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {adminUsersData.users.map(u => (
+                            <TableRow key={u.id} className="data-row hover:bg-muted/30">
+                              <TableCell className="font-mono text-sm">{u.email}</TableCell>
+                              <TableCell className="text-sm">{u.display_name || '—'}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{new Date(u.created_at).toLocaleDateString('pt-BR')}</TableCell>
+                              <TableCell><Badge variant={u.status === 'Ativo' ? 'default' : 'secondary'} className="text-xs">{u.status}</Badge></TableCell>
+                              <TableCell className="text-sm font-mono">{u.assets_count}</TableCell>
+                              <TableCell className="text-sm font-mono">{u.contributions_count}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {adminUsersData.pagination.pages > 1 && (
+                      <div className="p-4 border-t border-border/30 flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Página {adminUsersData.pagination.page} de {adminUsersData.pagination.pages} ({adminUsersData.pagination.total} usuários)</span>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setAdminUsersPage(p => Math.max(1, p - 1))} disabled={adminUsersData.pagination.page === 1}><ChevronLeft className="h-4 w-4" /></Button>
+                          <Button variant="outline" size="sm" onClick={() => setAdminUsersPage(p => p + 1)} disabled={adminUsersData.pagination.page >= adminUsersData.pagination.pages}><ChevronRight className="h-4 w-4" /></Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
+
+              {/* Activity Log */}
+              <div className="glass-card overflow-hidden">
+                <div className="p-4 border-b border-border/30">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Activity className="h-4 w-4 text-primary" />
+                    <h3 className="font-semibold">Log de Atividades</h3>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {['all', 'login', 'security', 'backup', 'system'].map(f => (
+                      <Button key={f} variant={adminActivityFilter === f ? 'default' : 'ghost'} size="sm" onClick={() => { setAdminActivityFilter(f); setAdminActivityPage(1); }} className="text-xs">
+                        {f === 'all' ? 'Todas' : f === 'login' ? 'Logins' : f === 'security' ? 'Segurança' : f === 'backup' ? 'Backups' : 'Sistema'}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {adminActivityData?.logs ? (
+                  <div className="divide-y divide-border/30">
+                    {adminActivityData.logs.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <Activity className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">Nenhuma atividade registrada</p>
+                      </div>
+                    ) : adminActivityData.logs.map(log => (
+                      <div key={log.id} className="p-4 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium">{log.action}</span>
+                              <Badge variant="outline" className="text-xs font-mono">{log.user_email}</Badge>
+                            </div>
+                            {log.details && <p className="text-sm text-muted-foreground">{log.details}</p>}
+                            <p className="text-xs text-muted-foreground mt-1">{formatDistanceToNow(new Date(log.created_at), { addSuffix: true, locale: ptBR })}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center"><p className="text-sm text-muted-foreground">Carregando...</p></div>
+                )}
+              </div>
+
+              {/* Recent Users */}
+              {adminMetrics?.recent_users && adminMetrics.recent_users.length > 0 && (
+                <div className="glass-card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <h4 className="text-sm font-medium">Últimos Cadastros</h4>
+                  </div>
+                  <div className="space-y-2">
+                    {adminMetrics.recent_users.slice(0, 5).map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/20">
+                        <div className="flex items-center gap-2">
+                          <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center"><User className="h-3 w-3 text-primary" /></div>
+                          <span className="text-sm font-mono">{u.email}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(u.created_at), { addSuffix: true, locale: ptBR })}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </TabsContent>
           )}
         </Tabs>
