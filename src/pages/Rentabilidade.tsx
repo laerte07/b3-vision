@@ -14,44 +14,34 @@ import {
 } from 'recharts';
 import {
   TrendingUp, ChevronDown, Check, RotateCcw, Layers, Flame, BarChart3,
-  ArrowUpRight, ArrowDownRight, Activity, PlayCircle, Info, RefreshCw,
+  ArrowUpRight, ArrowDownRight, Activity, PlayCircle, Info, RefreshCw, Globe,
 } from 'lucide-react';
-import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
-import { useTransactions, Transaction } from '@/hooks/useTransactions';
-import { useBenchmarkHistory, BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
+import { usePortfolio } from '@/hooks/usePortfolio';
+import { useTransactions } from '@/hooks/useTransactions';
+import { useBenchmarkHistory } from '@/hooks/useBenchmarkHistory';
+import {
+  ALL_SERIES, SERIES_TO_BENCHMARK, BENCHMARK_TO_SERIES,
+  getPeriodStartDate, getPeriodMonths, buildUnifiedData,
+  type SeriesKey, type SeriesDef, type PeriodKey, type Mode,
+} from '@/lib/return-engine';
 
-// ─── Series definitions ─────────────────────────────────────
-type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ifix' | 'ibov';
-
-interface SeriesDef { key: SeriesKey; label: string; color: string }
-
-const ALL_SERIES: SeriesDef[] = [
-  { key: 'carteira', label: 'Carteira', color: 'hsl(43, 85%, 55%)' },
-  { key: 'cdi',      label: 'CDI',      color: 'hsl(200, 80%, 55%)' },
-  { key: 'ipca',     label: 'IPCA',     color: 'hsl(30, 90%, 55%)' },
-  { key: 'ifix',     label: 'IFIX',     color: 'hsl(142, 70%, 45%)' },
-  { key: 'ibov',     label: 'IBOV',     color: 'hsl(280, 70%, 60%)' },
-];
-
+// ─── Local config ───────────────────────────────────────────
 const DEFAULT_VISIBLE: SeriesKey[] = ['carteira', 'cdi'];
 
 const PRESETS: { label: string; icon: React.ReactNode; keys: SeriesKey[] }[] = [
   { label: 'Inflação', icon: <Flame className="h-3 w-3" />, keys: ['carteira', 'cdi', 'ipca'] },
-  { label: 'Renda Variável BR', icon: <BarChart3 className="h-3 w-3" />, keys: ['carteira', 'ibov', 'ifix'] },
-  { label: 'Dividendos', icon: <TrendingUp className="h-3 w-3" />, keys: ['carteira', 'ifix'] },
+  { label: 'Renda Variável', icon: <BarChart3 className="h-3 w-3" />, keys: ['carteira', 'ibov'] },
+  { label: 'Internacional', icon: <Globe className="h-3 w-3" />, keys: ['carteira', 'sp500', 'ibov'] },
 ];
 
-type PeriodKey = 'mtd' | '6m' | '12m' | '24m' | '60m' | 'all';
-const PERIODS: { key: PeriodKey; label: string; months: number }[] = [
-  { key: 'mtd', label: 'Mês atual', months: -1 },
-  { key: '6m', label: '6 meses', months: 6 },
-  { key: '12m', label: '12 meses', months: 12 },
-  { key: '24m', label: '2 anos', months: 24 },
-  { key: '60m', label: '5 anos', months: 60 },
-  { key: 'all', label: 'Desde o início', months: 0 },
+const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: 'mtd', label: 'Mês atual' },
+  { key: '6m', label: '6 meses' },
+  { key: '12m', label: '12 meses' },
+  { key: '24m', label: '2 anos' },
+  { key: '60m', label: '5 anos' },
+  { key: 'all', label: 'Desde o início' },
 ];
-
-type Mode = 'real' | 'simulacao';
 
 const LS_KEY = 'fortuna:rentabilidade:series';
 const LS_MODE_KEY = 'fortuna:rentabilidade:mode';
@@ -59,7 +49,12 @@ const LS_MODE_KEY = 'fortuna:rentabilidade:mode';
 function loadSavedSeries(): SeriesKey[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) { const p = JSON.parse(raw) as SeriesKey[]; if (Array.isArray(p) && p.length > 0) return p; }
+    if (raw) {
+      const p = JSON.parse(raw) as SeriesKey[];
+      // Filter out removed series like 'ifix'
+      const valid = p.filter(k => ALL_SERIES.some(s => s.key === k));
+      if (valid.length > 0) return valid;
+    }
   } catch { /* ignore */ }
   return DEFAULT_VISIBLE;
 }
@@ -69,482 +64,6 @@ function loadMode(): Mode {
   return 'real';
 }
 function saveMode(m: Mode) { localStorage.setItem(LS_MODE_KEY, m); }
-
-// ─── Benchmark code mapping ─────────────────────────────────
-const SERIES_TO_BENCHMARK: Partial<Record<SeriesKey, string>> = {
-  cdi: 'CDI',
-  ipca: 'IPCA',
-  ibov: 'IBOV',
-  ifix: 'IFIX',
-};
-const BENCHMARK_TO_SERIES: Record<string, SeriesKey> = {
-  CDI: 'cdi',
-  IPCA: 'ipca',
-  IBOV: 'ibov',
-  IFIX: 'ifix',
-};
-
-// ─── Date helpers ───────────────────────────────────────────
-function toDateStr(d: Date): string { return d.toISOString().slice(0, 10); }
-
-function getPeriodStartDate(period: PeriodKey, transactions: Transaction[]): Date {
-  const now = new Date();
-  if (period === 'mtd') return new Date(now.getFullYear(), now.getMonth(), 1);
-  if (period === 'all' && transactions.length > 0) return new Date(transactions[0].date);
-  const monthsMap: Record<string, number> = { '6m': 6, '12m': 12, '24m': 24, '60m': 60 };
-  const m = monthsMap[period] ?? 12;
-  const d = new Date();
-  d.setMonth(d.getMonth() - m);
-  return d;
-}
-
-function getPeriodMonths(period: PeriodKey, transactions: Transaction[]): number {
-  if (period === 'mtd') return 1;
-  if (period === 'all' && transactions.length > 0) {
-    const first = new Date(transactions[0].date);
-    const now = new Date();
-    return Math.max(1, (now.getFullYear() - first.getFullYear()) * 12 + (now.getMonth() - first.getMonth()) + 1);
-  }
-  const monthsMap: Record<string, number> = { '6m': 6, '12m': 12, '24m': 24, '60m': 60 };
-  return monthsMap[period] ?? 12;
-}
-
-// ─── Build daily timeline ───────────────────────────────────
-function buildDailyTimeline(start: Date, end: Date): string[] {
-  const dates: string[] = [];
-  const cur = new Date(start);
-  cur.setHours(0, 0, 0, 0);
-  const endNorm = new Date(end);
-  endNorm.setHours(0, 0, 0, 0);
-  while (cur <= endNorm) {
-    dates.push(toDateStr(cur));
-    cur.setDate(cur.getDate() + 1);
-  }
-  return dates;
-}
-
-// ─── Normalize benchmarks to daily % return from base ───────
-function normalizeBenchmarkDaily(
-  benchmarkData: BenchmarkPoint[],
-  periodStartStr: string,
-): Record<string, Record<string, number>> {
-  // Group by code
-  const grouped: Record<string, BenchmarkPoint[]> = {};
-  for (const p of benchmarkData) {
-    if (!grouped[p.benchmark_code]) grouped[p.benchmark_code] = [];
-    grouped[p.benchmark_code].push(p);
-  }
-
-  const result: Record<string, Record<string, number>> = {};
-
-  for (const [code, points] of Object.entries(grouped)) {
-    // Find base: last point on or before periodStart
-    let baseValue: number | null = null;
-    for (const p of points) {
-      if (p.date <= periodStartStr) baseValue = p.value;
-      else break;
-    }
-    if (baseValue === null && points.length > 0) baseValue = points[0].value;
-    if (!baseValue || baseValue === 0) {
-      if (import.meta.env.DEV) console.warn(`[Benchmark ${code}] No base value found, skipping`);
-      continue;
-    }
-
-    const daily: Record<string, number> = {};
-    let lastPct = 0;
-    for (const p of points) {
-      if (p.date < periodStartStr) continue;
-      const pct = ((p.value / baseValue) - 1) * 100;
-      daily[p.date] = pct;
-      lastPct = pct;
-    }
-
-    result[code] = daily;
-
-    if (import.meta.env.DEV) {
-      const keys = Object.keys(daily);
-      console.log(`[Benchmark ${code}] base=${baseValue.toFixed(2)}, points=${keys.length}, first=${daily[keys[0]]?.toFixed(4) ?? 'N/A'}%, last=${lastPct.toFixed(4)}%`);
-    }
-  }
-
-  return result;
-}
-
-// ─── Simulation mode: weighted return by current composition ─
-function computeSimulationReturn(
-  portfolio: PortfolioAsset[],
-  transactions: Transaction[],
-  periodStartStr: string,
-  periodEndStr: string,
-  benchmarkRawData: BenchmarkPoint[],
-): number | null {
-  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
-  const totalValue = activeAssets.reduce((sum, a) => sum + a.quantity * (a.last_price ?? a.avg_price), 0);
-  if (totalValue <= 0) return null;
-
-  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-
-  if (import.meta.env.DEV) {
-    console.group('[Simulação Carteira] Cálculo detalhado');
-    console.log('periodStart:', periodStartStr);
-    console.log('periodEnd:', periodEndStr);
-    console.log('assetsCount:', activeAssets.length);
-    console.log('totalPortfolioValue:', totalValue.toFixed(2));
-  }
-
-  let portfolioReturn = 0;
-  let totalWeight = 0;
-  const assetDetails: { ticker: string; weight: number; startPrice: number; startDateUsed: string; endPrice: number; endDateUsed: string; returnPct: number; contributionPct: number; startSource: string }[] = [];
-
-  for (const asset of activeAssets) {
-    const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
-    totalWeight += weight;
-    const currentPrice = asset.last_price!;
-
-    // Find start price: best available price near period start
-    // Priority: last transaction price on or before periodStart, then first transaction after
-    let startPrice: number | null = null;
-    let startDateUsed = periodStartStr;
-    let startSource = '';
-
-    // Look through transactions for this asset
-    const assetTxs = sorted.filter(t => t.asset_id === asset.id);
-
-    // Last transaction on or before period start
-    for (const t of assetTxs) {
-      if (t.date <= periodStartStr) {
-        startPrice = t.price;
-        startDateUsed = t.date;
-        startSource = 'tx_before';
-      } else break;
-    }
-
-    // If no transaction before, use first transaction after period start
-    if (startPrice === null) {
-      const firstAfter = assetTxs.find(t => t.date > periodStartStr);
-      if (firstAfter) {
-        startPrice = firstAfter.price;
-        startDateUsed = firstAfter.date;
-        startSource = 'tx_after';
-      }
-    }
-
-    // Fallback to avg_price
-    if (!startPrice || startPrice <= 0) {
-      startPrice = asset.avg_price;
-      startDateUsed = 'avg_price';
-      startSource = 'avg_price';
-    }
-
-    if (startPrice <= 0) continue;
-
-    const ret = (currentPrice / startPrice) - 1;
-    const contribution = weight * ret;
-    portfolioReturn += contribution;
-
-    assetDetails.push({
-      ticker: asset.ticker,
-      weight: weight * 100,
-      startPrice,
-      startDateUsed,
-      endPrice: currentPrice,
-      endDateUsed: periodEndStr,
-      returnPct: ret * 100,
-      contributionPct: contribution * 100,
-      startSource,
-    });
-  }
-
-  if (import.meta.env.DEV) {
-    console.log('totalWeight:', (totalWeight * 100).toFixed(2) + '%');
-    console.table(assetDetails.map(a => ({
-      ticker: a.ticker,
-      'peso%': a.weight.toFixed(2),
-      'preçoInício': a.startPrice.toFixed(2),
-      'dataInício': a.startDateUsed,
-      'fonte': a.startSource,
-      'preçoFim': a.endPrice.toFixed(2),
-      'retorno%': a.returnPct.toFixed(2),
-      'contribuição%': a.contributionPct.toFixed(2),
-    })));
-    console.log(`Retorno simulado final: ${(portfolioReturn * 100).toFixed(4)}%`);
-    console.groupEnd();
-  }
-
-  return portfolioReturn * 100;
-}
-
-// ─── Real mode: TWR (Time-Weighted Return) ──────────────────
-function computeRealTWR(
-  transactions: Transaction[],
-  portfolio: PortfolioAsset[],
-  periodStartStr: string,
-  nowStr: string,
-): number | null {
-  if (portfolio.length === 0) return null;
-
-  const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-  const currentPriceMap: Record<string, number> = {};
-  portfolio.forEach(a => { if (a.last_price != null) currentPriceMap[a.id] = a.last_price; });
-
-  // Build positions up to period start
-  const positions: Record<string, { qty: number; avgPrice: number }> = {};
-  const lastKnownPrice: Record<string, number> = {};
-
-  const updatePosition = (tx: Transaction) => {
-    if (!positions[tx.asset_id]) positions[tx.asset_id] = { qty: 0, avgPrice: 0 };
-    const pos = positions[tx.asset_id];
-    if (tx.type === 'compra' || tx.type === 'buy') {
-      const newQty = pos.qty + tx.quantity;
-      if (newQty > 0) {
-        pos.avgPrice = ((pos.qty * pos.avgPrice) + (tx.quantity * tx.price)) / newQty;
-      } else {
-        pos.avgPrice = tx.price;
-      }
-      pos.qty = newQty;
-    } else {
-      pos.qty = Math.max(0, pos.qty - tx.quantity);
-    }
-  };
-
-  for (const tx of sorted) {
-    if (tx.date > periodStartStr) break;
-    updatePosition(tx);
-    lastKnownPrice[tx.asset_id] = tx.price;
-  }
-  for (const [id, pos] of Object.entries(positions)) {
-    if (!lastKnownPrice[id] && pos.avgPrice > 0) lastKnownPrice[id] = pos.avgPrice;
-  }
-
-  const valuate = (): number => {
-    let total = 0;
-    for (const [id, pos] of Object.entries(positions)) {
-      if (pos.qty <= 0) continue;
-      total += pos.qty * (lastKnownPrice[id] ?? 0);
-    }
-    return total;
-  };
-
-  const inPeriodTxs = sorted.filter(tx => tx.date > periodStartStr && tx.date <= nowStr);
-  let twrProduct = 1;
-  let prevValue = valuate();
-
-  if (import.meta.env.DEV) {
-    console.group('[Real TWR] Cálculo');
-    console.log('Período:', periodStartStr, '→', nowStr);
-    console.log('Posições no início:', JSON.parse(JSON.stringify(positions)));
-    console.log('Patrimônio inicial:', prevValue.toFixed(2));
-    console.log('Transações no período:', inPeriodTxs.length);
-  }
-
-  for (const tx of inPeriodTxs) {
-    lastKnownPrice[tx.asset_id] = tx.price;
-    const valueBeforeFlow = valuate();
-
-    if (prevValue > 0) {
-      const subReturn = (valueBeforeFlow / prevValue) - 1;
-      twrProduct *= (1 + subReturn);
-      if (import.meta.env.DEV) {
-        console.log(`  Fluxo ${tx.date} | ${tx.type} ${tx.quantity}x ${portfolio.find(a => a.id === tx.asset_id)?.ticker ?? '?'} @ ${tx.price.toFixed(2)} | Pat: ${prevValue.toFixed(2)}→${valueBeforeFlow.toFixed(2)} | Sub: ${(subReturn * 100).toFixed(4)}%`);
-      }
-    }
-
-    updatePosition(tx);
-    prevValue = valuate();
-  }
-
-  // Final sub-period with current prices
-  for (const [id, price] of Object.entries(currentPriceMap)) {
-    lastKnownPrice[id] = price;
-  }
-  const finalValue = valuate();
-  if (prevValue > 0) {
-    const finalSub = (finalValue / prevValue) - 1;
-    twrProduct *= (1 + finalSub);
-    if (import.meta.env.DEV) {
-      console.log(`  Final: Pat ${prevValue.toFixed(2)}→${finalValue.toFixed(2)} | Sub: ${(finalSub * 100).toFixed(4)}%`);
-    }
-  }
-
-  const totalTWR = (twrProduct - 1) * 100;
-
-  if (import.meta.env.DEV) {
-    console.log(`TWR Total: ${totalTWR.toFixed(4)}%`);
-    console.groupEnd();
-  }
-
-  // If no initial value and no transactions in period → no real data
-  if (prevValue === 0 && inPeriodTxs.length === 0) return null;
-
-  return totalTWR;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// UNIFIED DATA PIPELINE
-// Chart, tooltip, and summary ALL consume this single object
-// ═══════════════════════════════════════════════════════════════
-interface UnifiedChartPoint {
-  dateStr: string;  // YYYY-MM-DD (for sorting)
-  label: string;    // display label
-  carteira?: number;
-  cdi?: number;
-  ipca?: number;
-  ibov?: number;
-  ifix?: number;
-}
-
-interface UnifiedResult {
-  chartData: UnifiedChartPoint[];
-  finalValues: Partial<Record<SeriesKey, number>>; // final % for each series
-  hasCarteiraData: boolean;
-}
-
-function computeEffectiveEndDate(
-  benchmarkRawData: BenchmarkPoint[],
-): string {
-  const today = toDateStr(new Date());
-  // Find the latest date across all benchmark data
-  let latestBenchmark = '';
-  for (const p of benchmarkRawData) {
-    if (p.date > latestBenchmark && p.date <= today) latestBenchmark = p.date;
-  }
-  // Use the latest benchmark date if available, otherwise today
-  return latestBenchmark || today;
-}
-
-function buildUnifiedData(
-  mode: Mode,
-  period: PeriodKey,
-  transactions: Transaction[],
-  portfolio: PortfolioAsset[],
-  benchmarkRawData: BenchmarkPoint[],
-): UnifiedResult {
-  const periodStart = getPeriodStartDate(period, transactions);
-  const requestedEnd = new Date();
-  const periodStartStr = toDateStr(periodStart);
-  const requestedEndStr = toDateStr(requestedEnd);
-
-  // ── Effective end date: last date with real data ──
-  const effectiveEndStr = computeEffectiveEndDate(benchmarkRawData);
-  const effectiveEnd = new Date(effectiveEndStr + 'T00:00:00');
-
-  // 1. Compute portfolio return (use effectiveEnd)
-  let carteiraFinal: number | null = null;
-  if (mode === 'real') {
-    carteiraFinal = computeRealTWR(transactions, portfolio, periodStartStr, effectiveEndStr);
-  } else {
-    carteiraFinal = computeSimulationReturn(portfolio, transactions, periodStartStr, effectiveEndStr, benchmarkRawData);
-  }
-
-  const hasCarteiraData = carteiraFinal !== null;
-
-  // 2. Normalize benchmarks to daily % returns
-  const benchmarkDaily = normalizeBenchmarkDaily(benchmarkRawData, periodStartStr);
-
-  // 3. Build timeline up to effectiveEnd (not today)
-  const allDays = buildDailyTimeline(periodStart, effectiveEnd);
-  const useDaily = allDays.length <= 200;
-
-  let timelineDays: string[];
-  if (useDaily) {
-    timelineDays = allDays;
-  } else {
-    timelineDays = [allDays[0]];
-    for (let i = 7; i < allDays.length - 1; i += 7) {
-      timelineDays.push(allDays[i]);
-    }
-    if (timelineDays[timelineDays.length - 1] !== allDays[allDays.length - 1]) {
-      timelineDays.push(allDays[allDays.length - 1]);
-    }
-  }
-
-  // 4. Format labels
-  const formatLabel = (dateStr: string): string => {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dt = new Date(y, m - 1, d);
-    if (useDaily) {
-      return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-    }
-    return dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
-  };
-
-  // 5. Build chart points
-  const totalDays = allDays.length - 1;
-  const chartData: UnifiedChartPoint[] = [];
-  const finalValues: Partial<Record<SeriesKey, number>> = {};
-
-  for (const dateStr of timelineDays) {
-    const dayIndex = allDays.indexOf(dateStr);
-    const fraction = totalDays > 0 ? dayIndex / totalDays : 1;
-
-    const point: UnifiedChartPoint = {
-      dateStr,
-      label: formatLabel(dateStr),
-    };
-
-    // Carteira (interpolated)
-    if (carteiraFinal !== null) {
-      const totalReturnDec = carteiraFinal / 100;
-      const interpPct = totalReturnDec >= -1
-        ? (Math.pow(1 + totalReturnDec, fraction) - 1) * 100
-        : carteiraFinal * fraction;
-      point.carteira = +interpPct.toFixed(2);
-    }
-
-    // Benchmarks (use actual daily data with forward-fill)
-    for (const [code, daily] of Object.entries(benchmarkDaily)) {
-      const seriesKey = BENCHMARK_TO_SERIES[code];
-      if (!seriesKey) continue;
-
-      let val: number | undefined;
-      if (daily[dateStr] !== undefined) {
-        val = daily[dateStr];
-      } else {
-        let lastVal = 0;
-        for (const d of allDays) {
-          if (d > dateStr) break;
-          if (daily[d] !== undefined) lastVal = daily[d];
-        }
-        val = lastVal;
-      }
-
-      (point as any)[seriesKey] = +val.toFixed(2);
-    }
-
-    chartData.push(point);
-  }
-
-  // 6. Collect final values from LAST chart point
-  const lastPoint = chartData[chartData.length - 1];
-  if (lastPoint) {
-    for (const s of ALL_SERIES) {
-      const v = (lastPoint as any)[s.key] as number | undefined;
-      if (v !== undefined) finalValues[s.key] = v;
-    }
-  }
-
-  if (import.meta.env.DEV) {
-    // Per-benchmark last valid date
-    const benchLastDates: Record<string, string> = {};
-    for (const [code, daily] of Object.entries(benchmarkDaily)) {
-      const dates = Object.keys(daily);
-      benchLastDates[code] = dates.length > 0 ? dates[dates.length - 1] : 'N/A';
-    }
-
-    console.group('[UnifiedData] Resultado');
-    console.log('Modo:', mode, '| Período:', period);
-    console.log('requestedEndDate:', requestedEndStr);
-    console.log('effectiveEndDate:', effectiveEndStr);
-    console.log('periodStartStr:', periodStartStr);
-    console.log('lastValidDate por benchmark:', benchLastDates);
-    console.log('Pontos no gráfico:', chartData.length);
-    console.log('Valores finais:', finalValues);
-    console.log('Tem dados carteira:', hasCarteiraData);
-    console.groupEnd();
-  }
-
-  return { chartData, finalValues, hasCarteiraData };
-}
 
 // ─── Component ──────────────────────────────────────────────
 const Rentabilidade = () => {
@@ -567,7 +86,7 @@ const Rentabilidade = () => {
     return padded;
   }, [period, transactions]);
 
-  // Benchmark codes to fetch
+  // Benchmark codes to fetch (always include CDI as reference)
   const benchmarkCodes = useMemo(() => {
     const codes: string[] = [];
     for (const s of visibleSeries) {
@@ -593,7 +112,8 @@ const Rentabilidade = () => {
   const { chartData, finalValues, hasCarteiraData } = unified;
 
   const isLoading = portfolioLoading || txLoading;
-  const hasRealData = transactions.length > 0;
+  // Real mode has data if there are transactions OR positions with prices
+  const hasRealData = transactions.length > 0 || portfolio.some(a => a.quantity > 0 && a.last_price != null);
   const periodMonths = getPeriodMonths(period, transactions);
 
   // Summary rows derived from finalValues (same source as chart)
@@ -628,6 +148,19 @@ const Rentabilidade = () => {
   // ─── Determine UI state ───────────────────────────────────
   const showEmptyState = !isLoading && mode === 'real' && !hasRealData;
   const showChart = !isLoading && !showEmptyState && chartData.length > 1;
+
+  const modeInfoText = useMemo(() => {
+    if (mode === 'real') {
+      if (transactions.length > 0) {
+        return `Modo Real — baseado em ${transactions.length} lançamentos (TWR)`;
+      }
+      if (hasRealData) {
+        return `Modo Real — calculado com preço médio × preço atual (sem lançamentos individuais)`;
+      }
+      return 'Modo Real — nenhum ativo com posição encontrado. Registre aportes para ver a rentabilidade real.';
+    }
+    return 'Modo Simulação — composição atual simulada no período histórico selecionado';
+  }, [mode, transactions.length, hasRealData]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -799,12 +332,7 @@ const Rentabilidade = () => {
             : 'border-[hsl(var(--chart-2))]/30 bg-[hsl(var(--chart-2))]/5 text-[hsl(var(--chart-2))]'
         }`}>
           <Info className="h-3 w-3" />
-          {mode === 'real'
-            ? hasRealData
-              ? `Modo Real — baseado em ${transactions.length} lançamentos (TWR)`
-              : 'Modo Real — nenhum lançamento encontrado. Registre aportes para ver a rentabilidade real.'
-            : 'Modo Simulação — composição atual simulada no período histórico selecionado'
-          }
+          {modeInfoText}
         </div>
       </div>
 
@@ -822,10 +350,10 @@ const Rentabilidade = () => {
         <Card>
           <CardContent className="py-12 text-center">
             <Activity className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-            <h3 className="text-lg font-semibold mb-1">Nenhum lançamento encontrado</h3>
+            <h3 className="text-lg font-semibold mb-1">Nenhuma posição encontrada</h3>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              No modo Real, a rentabilidade é calculada com base nas suas operações (compras e vendas).
-              Registre ao menos um aporte para começar.
+              No modo Real, a rentabilidade é calculada com base nas suas posições e operações.
+              Adicione ativos à carteira ou registre aportes para começar.
             </p>
           </CardContent>
         </Card>
