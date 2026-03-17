@@ -52,9 +52,7 @@ async function fetchYahooFinanceHistorical(
   console.log(`[Yahoo] Fetching: ${ticker}, range=${range}, interval=${interval}`);
   
   const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-    },
+    headers: { "User-Agent": "Mozilla/5.0" },
   });
   
   if (!res.ok) {
@@ -64,9 +62,7 @@ async function fetchYahooFinanceHistorical(
   
   const data = await res.json();
   const result = data?.chart?.result?.[0];
-  if (!result) {
-    throw new Error(`Yahoo: no result for ${ticker}`);
-  }
+  if (!result) throw new Error(`Yahoo: no result for ${ticker}`);
   
   const timestamps: number[] = result.timestamp ?? [];
   const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
@@ -79,11 +75,10 @@ async function fetchYahooFinanceHistorical(
     }
   }
   
-  console.log(`[Yahoo] ${ticker}: got ${points.length} valid data points from ${timestamps.length} timestamps`);
+  console.log(`[Yahoo] ${ticker}: got ${points.length} valid data points`);
   return points;
 }
 
-// Yahoo ranges to try in order
 const YAHOO_RANGES = ["5y", "2y", "1y", "6mo", "3mo"];
 
 async function fetchYahooWithFallback(
@@ -186,8 +181,8 @@ Deno.serve(async (req) => {
     const benchmarks: string[] = body.benchmarks ?? [
       "CDI",
       "IBOV",
-      "IFIX",
       "IPCA",
+      "SP500",
     ];
 
     const brapiToken = Deno.env.get("BRAPI_TOKEN") ?? "";
@@ -208,21 +203,13 @@ Deno.serve(async (req) => {
         let records: any[] = [];
 
         if (code === "CDI") {
-          // BCB series 12: CDI daily rate (% ao dia)
           const data = await fetchBCBSeries(12, startDate, endDate);
           console.log(`[CDI] Got ${data.length} data points from BCB series 12`);
-
-          if (data.length > 0) {
-            console.log(`[CDI] First value: ${data[0].valor} on ${data[0].data}`);
-            console.log(`[CDI] Last value: ${data[data.length - 1].valor} on ${data[data.length - 1].data}`);
-          }
-
           let cumIndex = 1000;
           for (const row of data) {
             const dailyRatePct = parseFloat(row.valor.replace(",", "."));
             if (isNaN(dailyRatePct)) continue;
-            const dailyRate = dailyRatePct / 100;
-            cumIndex *= (1 + dailyRate);
+            cumIndex *= (1 + dailyRatePct / 100);
             records.push({
               benchmark_code: "CDI",
               benchmark_name: "CDI",
@@ -232,15 +219,13 @@ Deno.serve(async (req) => {
               updated_at: now,
             });
           }
-
           if (records.length > 0) {
-            console.log(`[CDI] Cumulative index: start=1000, end=${cumIndex.toFixed(4)} (${((cumIndex / 1000 - 1) * 100).toFixed(2)}% total)`);
+            console.log(`[CDI] Cumulative index: start=1000, end=${cumIndex.toFixed(4)}`);
           }
+
         } else if (code === "IPCA") {
-          // BCB series 433: IPCA monthly variation (%)
           const data = await fetchBCBSeries(433, startDate, endDate);
           console.log(`[IPCA] Got ${data.length} data points from BCB series 433`);
-
           let cumIndex = 1000;
           for (const row of data) {
             const monthlyRate = parseFloat(row.valor.replace(",", "."));
@@ -256,60 +241,46 @@ Deno.serve(async (req) => {
             });
           }
 
-          if (records.length > 0) {
-            console.log(`[IPCA] Cumulative index: start=1000, end=${cumIndex.toFixed(4)}`);
-          }
         } else if (code === "IBOV") {
-          // Primary: Yahoo Finance (^BVSP) — free, 5y daily data
           console.log("[IBOV] Trying Yahoo Finance first...");
           let data = await fetchYahooWithFallback("^BVSP");
           let source = "yahoo";
-
-          // Fallback: BRAPI
           if (data.length <= 1 && brapiToken) {
             console.log("[IBOV] Yahoo insufficient, falling back to BRAPI...");
             data = await fetchBRAPIWithFallback("^BVSP", brapiToken);
             source = "brapi";
           }
-
           console.log(`[IBOV] Got ${data.length} data points from ${source}`);
           records = toRecords(data, "IBOV", "Ibovespa", source, now);
 
-          if (records.length > 0) {
-            console.log(`[IBOV] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
-          }
-        } else if (code === "IFIX") {
-          // Primary: Yahoo Finance (IFIX.SA) — try first
-          console.log("[IFIX] Trying Yahoo Finance first...");
-          let data = await fetchYahooWithFallback("IFIX.SA");
-          let source = "yahoo";
+        } else if (code === "SP500") {
+          // S&P 500 via Yahoo Finance (^GSPC) with SPY as fallback
+          console.log("[SP500] Trying Yahoo Finance ^GSPC...");
+          let data = await fetchYahooWithFallback("^GSPC");
+          let source = "yahoo_gspc";
 
-          // Fallback: BRAPI with multiple tickers
+          if (data.length <= 1) {
+            console.log("[SP500] ^GSPC insufficient, trying SPY...");
+            data = await fetchYahooWithFallback("SPY");
+            source = "yahoo_spy";
+          }
+
           if (data.length <= 1 && brapiToken) {
-            console.log("[IFIX] Yahoo insufficient, falling back to BRAPI...");
-            const tickers = ["IFIX", "IFIX11"];
-            data = [];
-            for (const ticker of tickers) {
+            console.log("[SP500] Yahoo insufficient, trying BRAPI...");
+            for (const ticker of ["^GSPC", "SPY"]) {
               try {
                 data = await fetchBRAPIWithFallback(ticker, brapiToken);
-                if (data.length > 1) {
-                  console.log(`[IFIX] BRAPI success with ticker: ${ticker}`);
-                  break;
-                }
+                if (data.length > 1) { source = "brapi"; break; }
               } catch (e) {
-                console.log(`[IFIX] BRAPI ticker ${ticker} failed: ${(e as Error).message}`);
+                console.log(`[SP500] BRAPI ${ticker} failed: ${(e as Error).message}`);
               }
             }
-            source = "brapi";
           }
 
-          console.log(`[IFIX] Got ${data.length} data points from ${source}`);
-          records = toRecords(data, "IFIX", "IFIX", source, now);
-
-          if (records.length > 0) {
-            console.log(`[IFIX] Price range: ${records[0].value} → ${records[records.length - 1].value}`);
-          }
+          console.log(`[SP500] Got ${data.length} data points from ${source}`);
+          records = toRecords(data, "SP500", "S&P 500", source, now);
         }
+        // IFIX removed — unreliable data source
 
         // Upsert in chunks
         if (records.length > 0) {

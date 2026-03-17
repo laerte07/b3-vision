@@ -7,7 +7,7 @@ import type { Transaction } from '@/hooks/useTransactions';
 import type { BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
 
 // ─── Types ──────────────────────────────────────────────────
-export type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ifix' | 'ibov';
+export type SeriesKey = 'carteira' | 'cdi' | 'ipca' | 'ibov' | 'sp500';
 export type PeriodKey = 'mtd' | '6m' | '12m' | '24m' | '60m' | 'all';
 export type Mode = 'real' | 'simulacao';
 
@@ -20,7 +20,7 @@ export interface UnifiedChartPoint {
   cdi?: number;
   ipca?: number;
   ibov?: number;
-  ifix?: number;
+  sp500?: number;
 }
 
 export interface UnifiedResult {
@@ -34,15 +34,15 @@ export const ALL_SERIES: SeriesDef[] = [
   { key: 'carteira', label: 'Carteira', color: 'hsl(43, 85%, 55%)' },
   { key: 'cdi',      label: 'CDI',      color: 'hsl(200, 80%, 55%)' },
   { key: 'ipca',     label: 'IPCA',     color: 'hsl(30, 90%, 55%)' },
-  { key: 'ifix',     label: 'IFIX',     color: 'hsl(142, 70%, 45%)' },
   { key: 'ibov',     label: 'IBOV',     color: 'hsl(280, 70%, 60%)' },
+  { key: 'sp500',    label: 'S&P 500',  color: 'hsl(350, 75%, 55%)' },
 ];
 
 export const SERIES_TO_BENCHMARK: Partial<Record<SeriesKey, string>> = {
-  cdi: 'CDI', ipca: 'IPCA', ibov: 'IBOV', ifix: 'IFIX',
+  cdi: 'CDI', ipca: 'IPCA', ibov: 'IBOV', sp500: 'SP500',
 };
 export const BENCHMARK_TO_SERIES: Record<string, SeriesKey> = {
-  CDI: 'cdi', IPCA: 'ipca', IBOV: 'ibov', IFIX: 'ifix',
+  CDI: 'cdi', IPCA: 'ipca', IBOV: 'ibov', SP500: 'sp500',
 };
 
 // ─── Date helpers ───────────────────────────────────────────
@@ -77,6 +77,18 @@ export function getPeriodMonths(period: PeriodKey, transactions: Transaction[]):
   return monthsMap[period] ?? 12;
 }
 
+/**
+ * Resolve effective end date: last date with benchmark data, never future.
+ */
+export function resolveEffectiveEndDate(benchmarkRawData: BenchmarkPoint[]): string {
+  const today = toDateStr(new Date());
+  let latest = '';
+  for (const p of benchmarkRawData) {
+    if (p.date > latest && p.date <= today) latest = p.date;
+  }
+  return latest || today;
+}
+
 // ─── Normalize benchmarks ───────────────────────────────────
 export function normalizeBenchmarkDaily(
   benchmarkData: BenchmarkPoint[],
@@ -89,19 +101,30 @@ export function normalizeBenchmarkDaily(
   }
   const result: Record<string, Record<string, number>> = {};
   for (const [code, points] of Object.entries(grouped)) {
+    // Sort by date
+    points.sort((a, b) => a.date.localeCompare(b.date));
+    // Find base: last point on or before periodStart
     let baseValue: number | null = null;
     for (const p of points) {
       if (p.date <= periodStartStr) baseValue = p.value;
       else break;
     }
     if (baseValue === null && points.length > 0) baseValue = points[0].value;
-    if (!baseValue || baseValue === 0) continue;
+    if (!baseValue || baseValue === 0) {
+      if (import.meta.env.DEV) console.warn(`[BenchmarkData] ${code}: no base value, skipping`);
+      continue;
+    }
     const daily: Record<string, number> = {};
     for (const p of points) {
       if (p.date < periodStartStr) continue;
       daily[p.date] = ((p.value / baseValue) - 1) * 100;
     }
     result[code] = daily;
+    if (import.meta.env.DEV) {
+      const keys = Object.keys(daily);
+      const last = keys.length > 0 ? daily[keys[keys.length - 1]] : 0;
+      console.log(`[BenchmarkData] ${code}: base=${baseValue.toFixed(2)}, points=${keys.length}, last=${last.toFixed(2)}%`);
+    }
   }
   return result;
 }
@@ -117,41 +140,95 @@ export function computeSimulationReturn(
   if (totalValue <= 0) return null;
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (import.meta.env.DEV) {
+    console.group('[RentabilidadeSimulação] Cálculo detalhado');
+    console.log('periodStart:', periodStartStr);
+    console.log('ativos:', activeAssets.length, 'totalValue:', totalValue.toFixed(2));
+  }
+
   let portfolioReturn = 0;
+  const details: any[] = [];
 
   for (const asset of activeAssets) {
     const weight = (asset.quantity * (asset.last_price ?? asset.avg_price)) / totalValue;
     const currentPrice = asset.last_price!;
+
+    // Find start price from transactions
+    let startPrice: number | null = null;
+    let startSource = '';
     const assetTxs = sorted.filter(t => t.asset_id === asset.id);
 
-    let startPrice: number | null = null;
     for (const t of assetTxs) {
-      if (t.date <= periodStartStr) startPrice = t.price;
+      if (t.date <= periodStartStr) { startPrice = t.price; startSource = 'tx_before'; }
       else break;
     }
     if (startPrice === null) {
       const firstAfter = assetTxs.find(t => t.date > periodStartStr);
-      if (firstAfter) startPrice = firstAfter.price;
+      if (firstAfter) { startPrice = firstAfter.price; startSource = 'tx_after'; }
     }
-    if (!startPrice || startPrice <= 0) startPrice = asset.avg_price;
+    // Fallback: avg_price (works when no transactions exist)
+    if (!startPrice || startPrice <= 0) { startPrice = asset.avg_price; startSource = 'avg_price'; }
     if (startPrice <= 0) continue;
 
-    portfolioReturn += weight * ((currentPrice / startPrice) - 1);
+    const ret = (currentPrice / startPrice) - 1;
+    portfolioReturn += weight * ret;
+
+    if (import.meta.env.DEV) {
+      details.push({
+        ticker: asset.ticker, peso: (weight * 100).toFixed(2) + '%',
+        preço_início: startPrice.toFixed(2), fonte: startSource,
+        preço_final: currentPrice.toFixed(2),
+        retorno: (ret * 100).toFixed(2) + '%',
+        contribuição: (weight * ret * 100).toFixed(2) + '%',
+      });
+    }
+  }
+
+  if (import.meta.env.DEV) {
+    console.table(details);
+    console.log(`Retorno simulado: ${(portfolioReturn * 100).toFixed(4)}%`);
+    console.groupEnd();
   }
 
   return portfolioReturn * 100;
 }
 
 // ─── Real TWR ───────────────────────────────────────────────
+/**
+ * Computes Time-Weighted Return.
+ * If no transactions exist but positions do, falls back to a simple
+ * avg_price → current_price return calculation.
+ */
 export function computeRealTWR(
   transactions: Transaction[],
   portfolio: PortfolioAsset[],
   periodStartStr: string,
   nowStr: string,
 ): number | null {
-  if (portfolio.length === 0) return null;
+  const activeAssets = portfolio.filter(a => a.quantity > 0 && a.last_price != null);
+  if (activeAssets.length === 0) return null;
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+
+  // ─── FALLBACK: no transactions at all → use positions directly ───
+  if (sorted.length === 0) {
+    if (import.meta.env.DEV) {
+      console.group('[RentabilidadeReal] Fallback: sem transações, usando posições');
+    }
+    const totalValue = activeAssets.reduce((s, a) => s + a.quantity * (a.last_price!), 0);
+    const totalCost = activeAssets.reduce((s, a) => s + a.quantity * a.avg_price, 0);
+    if (totalCost <= 0) { if (import.meta.env.DEV) console.groupEnd(); return null; }
+
+    const ret = ((totalValue / totalCost) - 1) * 100;
+    if (import.meta.env.DEV) {
+      console.log(`Custo total: ${totalCost.toFixed(2)}, Valor atual: ${totalValue.toFixed(2)}, Retorno: ${ret.toFixed(2)}%`);
+      console.groupEnd();
+    }
+    return ret;
+  }
+
+  // ─── Standard TWR with transactions ───
   const currentPriceMap: Record<string, number> = {};
   portfolio.forEach(a => { if (a.last_price != null) currentPriceMap[a.id] = a.last_price; });
 
@@ -170,6 +247,7 @@ export function computeRealTWR(
     }
   };
 
+  // Build positions up to period start
   for (const tx of sorted) {
     if (tx.date > periodStartStr) break;
     updatePosition(tx);
@@ -192,16 +270,29 @@ export function computeRealTWR(
   let twrProduct = 1;
   let prevValue = valuate();
 
+  if (import.meta.env.DEV) {
+    console.group('[RentabilidadeReal] TWR com transações');
+    console.log('Período:', periodStartStr, '→', nowStr);
+    console.log('Posições início:', JSON.parse(JSON.stringify(positions)));
+    console.log('Patrimônio inicial:', prevValue.toFixed(2));
+    console.log('Transações no período:', inPeriodTxs.length);
+  }
+
   for (const tx of inPeriodTxs) {
     lastKnownPrice[tx.asset_id] = tx.price;
     const valueBeforeFlow = valuate();
     if (prevValue > 0) {
       twrProduct *= (valueBeforeFlow / prevValue);
+      if (import.meta.env.DEV) {
+        const ticker = portfolio.find(a => a.id === tx.asset_id)?.ticker ?? '?';
+        console.log(`  ${tx.date} | ${tx.type} ${tx.quantity}x ${ticker} @ ${tx.price.toFixed(2)} | ${prevValue.toFixed(0)}→${valueBeforeFlow.toFixed(0)} | sub=${((valueBeforeFlow / prevValue - 1) * 100).toFixed(2)}%`);
+      }
     }
     updatePosition(tx);
     prevValue = valuate();
   }
 
+  // Final sub-period with current prices
   for (const [id, price] of Object.entries(currentPriceMap)) {
     lastKnownPrice[id] = price;
   }
@@ -211,20 +302,17 @@ export function computeRealTWR(
   }
 
   const totalTWR = (twrProduct - 1) * 100;
+
+  if (import.meta.env.DEV) {
+    console.log(`Final: ${prevValue.toFixed(0)}→${finalValue.toFixed(0)} | TWR=${totalTWR.toFixed(2)}%`);
+    console.groupEnd();
+  }
+
   if (prevValue === 0 && inPeriodTxs.length === 0) return null;
   return totalTWR;
 }
 
 // ─── Unified data pipeline ──────────────────────────────────
-function computeEffectiveEndDate(benchmarkRawData: BenchmarkPoint[]): string {
-  const today = toDateStr(new Date());
-  let latest = '';
-  for (const p of benchmarkRawData) {
-    if (p.date > latest && p.date <= today) latest = p.date;
-  }
-  return latest || today;
-}
-
 export function buildUnifiedData(
   mode: Mode,
   period: PeriodKey,
@@ -234,7 +322,7 @@ export function buildUnifiedData(
 ): UnifiedResult {
   const periodStart = getPeriodStartDate(period, transactions);
   const periodStartStr = toDateStr(periodStart);
-  const effectiveEndStr = computeEffectiveEndDate(benchmarkRawData);
+  const effectiveEndStr = resolveEffectiveEndDate(benchmarkRawData);
   const effectiveEnd = new Date(effectiveEndStr + 'T00:00:00');
 
   // 1. Compute portfolio return
@@ -270,17 +358,29 @@ export function buildUnifiedData(
       : dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
   };
 
-  // 5. Build chart points
+  // 5. Build chart points with forward-fill for benchmarks
   const totalDays = allDays.length - 1;
   const chartData: UnifiedChartPoint[] = [];
   const finalValues: Partial<Record<SeriesKey, number>> = {};
+
+  // Pre-build forward-fill maps for each benchmark for O(1) lookup
+  const benchmarkFF: Record<string, Record<string, number>> = {};
+  for (const [code, daily] of Object.entries(benchmarkDaily)) {
+    const ff: Record<string, number> = {};
+    let lastVal = 0;
+    for (const d of allDays) {
+      if (daily[d] !== undefined) lastVal = daily[d];
+      ff[d] = lastVal;
+    }
+    benchmarkFF[code] = ff;
+  }
 
   for (const dateStr of timelineDays) {
     const dayIndex = allDays.indexOf(dateStr);
     const fraction = totalDays > 0 ? dayIndex / totalDays : 1;
     const point: UnifiedChartPoint = { dateStr, label: formatLabel(dateStr) };
 
-    // Carteira: compound interpolation (not linear!)
+    // Carteira: compound interpolation
     if (carteiraFinal !== null) {
       const totalReturnDec = carteiraFinal / 100;
       const interpPct = totalReturnDec >= -1
@@ -289,22 +389,11 @@ export function buildUnifiedData(
       point.carteira = +interpPct.toFixed(2);
     }
 
-    // Benchmarks: actual daily data with forward-fill
-    for (const [code, daily] of Object.entries(benchmarkDaily)) {
+    // Benchmarks with forward-fill
+    for (const [code, ff] of Object.entries(benchmarkFF)) {
       const seriesKey = BENCHMARK_TO_SERIES[code];
       if (!seriesKey) continue;
-      let val: number | undefined;
-      if (daily[dateStr] !== undefined) {
-        val = daily[dateStr];
-      } else {
-        let lastVal = 0;
-        for (const d of allDays) {
-          if (d > dateStr) break;
-          if (daily[d] !== undefined) lastVal = daily[d];
-        }
-        val = lastVal;
-      }
-      (point as any)[seriesKey] = +val.toFixed(2);
+      (point as any)[seriesKey] = +(ff[dateStr] ?? 0).toFixed(2);
     }
     chartData.push(point);
   }
@@ -316,6 +405,15 @@ export function buildUnifiedData(
       const v = (lastPoint as any)[s.key] as number | undefined;
       if (v !== undefined) finalValues[s.key] = v;
     }
+  }
+
+  if (import.meta.env.DEV) {
+    console.group('[DateResolver] Unified pipeline');
+    console.log('mode:', mode, 'period:', period);
+    console.log('periodStart:', periodStartStr, 'effectiveEnd:', effectiveEndStr);
+    console.log('chartPoints:', chartData.length, 'hasCarteira:', hasCarteiraData);
+    console.log('finalValues:', finalValues);
+    console.groupEnd();
   }
 
   return { chartData, finalValues, hasCarteiraData };
