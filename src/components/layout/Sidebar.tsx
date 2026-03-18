@@ -92,7 +92,7 @@ const SidebarNav = ({ pinned, setPinned, hovered, setHovered, expanded, mobileOp
         'flex items-center h-14 border-b border-sidebar-border shrink-0',
         !showLabels ? 'justify-center px-2' : 'px-4 justify-between'
       )}>
-        <Link to="/dashboard" className="flex items-center gap-2.5 group">
+        <Link to="/app/dashboard" className="flex items-center gap-2.5 group">
           <div className="h-7 w-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
             <TrendingUp className="h-3.5 w-3.5 text-primary" />
           </div>

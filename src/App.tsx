@@ -39,7 +39,7 @@ const AuthRoute = () => {
 const LandingRoute = () => {
   const { user, loading } = useAuth();
   if (loading) return null;
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to="/app/dashboard" replace />;
   return <Landing />;
 };
 
