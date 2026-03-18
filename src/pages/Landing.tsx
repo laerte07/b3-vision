@@ -63,7 +63,7 @@ const Navbar = () => {
         <div className="flex items-center gap-3">
           {user ? (
             <Link
-              to="/dashboard"
+              to="/app/dashboard"
               className="px-5 py-2 rounded-lg bg-[hsl(var(--primary))] text-primary-foreground text-sm font-medium hover:brightness-110 transition-all shadow-lg shadow-[hsl(var(--primary)/0.25)]"
             >
               Ir para Dashboard
