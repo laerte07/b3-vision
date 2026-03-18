@@ -106,7 +106,7 @@ const Hero = () => {
         <video
           autoPlay loop muted playsInline
           className="absolute inset-0 w-full h-full object-cover"
-          src="/videos/planeta azul.mp4"
+          src="/videos/planetaazul.mp4"
         />
         {/* Overlays */}
         <div className="absolute inset-0 bg-gradient-to-b from-[hsl(222_47%_5%/0.6)] via-[hsl(222_47%_5%/0.45)] to-[hsl(222_47%_5%/0.95)]" />
@@ -255,7 +255,7 @@ const Showcase = () => {
             <video
               autoPlay loop muted playsInline
               className="w-full h-full object-cover"
-              src="/videos/terra speed.mp4"
+              src="/videos/terraspeed.mp4"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[hsl(222_47%_5%/0.7)] to-transparent" />
 
