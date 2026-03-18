@@ -21,7 +21,7 @@ const Auth = () => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) toast.error(error.message);
-    else navigate('/dashboard');
+    else navigate('/app/dashboard');
   };
 
   const handleSignup = async (e: React.FormEvent) => {
