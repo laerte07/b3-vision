@@ -333,7 +333,7 @@ const Numbers = () => {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
   const videoScale = useTransform(scrollYProgress, [0, 0.5, 1], [1.15, 1, 1.1]);
-  const videoOpacity = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [0.15, 0.25, 0.25, 0.1]);
+  const videoOpacity = useTransform(scrollYProgress, [0, 0.5, 1], [0.4, 0.6, 0.35]);
 
   return (
     <section ref={ref} className="relative py-28 px-6 overflow-hidden">
