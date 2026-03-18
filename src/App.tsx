@@ -16,6 +16,7 @@ import Settings from "./pages/Settings";
 import Score from "./pages/Score";
 import Contributions from "./pages/Contributions";
 import Rentabilidade from "./pages/Rentabilidade";
+import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import { ReactNode } from "react";
 
@@ -31,8 +32,15 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
 const AuthRoute = () => {
   const { user, loading } = useAuth();
   if (loading) return null;
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to="/app/dashboard" replace />;
   return <Auth />;
+};
+
+const LandingRoute = () => {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user) return <Navigate to="/app/dashboard" replace />;
+  return <Landing />;
 };
 
 const App = () => (
@@ -43,9 +51,10 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/" element={<LandingRoute />} />
             <Route path="/auth" element={<AuthRoute />} />
-            <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-              <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="/app" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+              <Route index element={<Navigate to="/app/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="portfolio" element={<Portfolio />} />
               <Route path="rebalancing" element={<Rebalancing />} />

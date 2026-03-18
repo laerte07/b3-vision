@@ -10,16 +10,16 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/portfolio', label: 'Carteira', icon: Briefcase },
-  { path: '/rebalancing', label: 'Rebalanceamento', icon: Scale },
-  { path: '/contributions', label: 'Aportes', icon: Wallet },
-  { path: '/rentabilidade', label: 'Rentabilidade', icon: LineChart },
-  { path: '/valuations', label: 'Valuations', icon: Calculator },
-  { path: '/score', label: 'Score', icon: Brain },
-  { path: '/correlation', label: 'Correlação', icon: GitBranch },
-  { path: '/reports', label: 'Relatórios', icon: FileText },
-  { path: '/settings', label: 'Configurações', icon: Settings },
+  { path: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/app/portfolio', label: 'Carteira', icon: Briefcase },
+  { path: '/app/rebalancing', label: 'Rebalanceamento', icon: Scale },
+  { path: '/app/contributions', label: 'Aportes', icon: Wallet },
+  { path: '/app/rentabilidade', label: 'Rentabilidade', icon: LineChart },
+  { path: '/app/valuations', label: 'Valuations', icon: Calculator },
+  { path: '/app/score', label: 'Score', icon: Brain },
+  { path: '/app/correlation', label: 'Correlação', icon: GitBranch },
+  { path: '/app/reports', label: 'Relatórios', icon: FileText },
+  { path: '/app/settings', label: 'Configurações', icon: Settings },
 ];
 
 interface SidebarState {
@@ -92,7 +92,7 @@ const SidebarNav = ({ pinned, setPinned, hovered, setHovered, expanded, mobileOp
         'flex items-center h-14 border-b border-sidebar-border shrink-0',
         !showLabels ? 'justify-center px-2' : 'px-4 justify-between'
       )}>
-        <Link to="/dashboard" className="flex items-center gap-2.5 group">
+        <Link to="/app/dashboard" className="flex items-center gap-2.5 group">
           <div className="h-7 w-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
             <TrendingUp className="h-3.5 w-3.5 text-primary" />
           </div>
