@@ -106,7 +106,7 @@ const Hero = () => {
         <video
           autoPlay loop muted playsInline
           className="absolute inset-0 w-full h-full object-cover"
-          src="/videos/planetaazul.mp4"
+          src="/videos/planeta-azul.mp4"
         />
         {/* Overlays */}
         <div className="absolute inset-0 bg-gradient-to-b from-[hsl(222_47%_5%/0.6)] via-[hsl(222_47%_5%/0.45)] to-[hsl(222_47%_5%/0.95)]" />
@@ -255,7 +255,7 @@ const Showcase = () => {
             <video
               autoPlay loop muted playsInline
               className="w-full h-full object-cover"
-              src="/videos/terraspeed.mp4"
+              src="/videos/terra-speed.mp4"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[hsl(222_47%_5%/0.7)] to-transparent" />
 
@@ -333,15 +333,16 @@ const Numbers = () => {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
   const videoScale = useTransform(scrollYProgress, [0, 0.5, 1], [1.15, 1, 1.1]);
-  const videoOpacity = useTransform(scrollYProgress, [0, 0.5, 1], [0.4, 0.6, 0.35]);
-
+  const videoOpacity = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [0.35, 0.55, 0.55, 0.3]);
+  const overlayOpacity = useTransform(scrollYProgress, [0, 0.5, 1], [0.45, 0.3, 0.5]);
+  
   return (
     <section ref={ref} className="relative py-28 px-6 overflow-hidden">
       {/* Video background parallax */}
       <motion.div className="absolute inset-0" style={{ scale: videoScale }}>
         <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover" src="/videos/hero-bg.mp4" />
       </motion.div>
-      <motion.div className="absolute inset-0 bg-[hsl(222_47%_5%)]" style={{ opacity: useTransform(videoOpacity, v => 1 - v) }} />
+      <motion.div className="absolute inset-0 bg-[hsl(222_47%_5%)]" style={{ opacity: overlayOpacity }} />
 
       <div className="relative max-w-5xl mx-auto text-center">
         <Reveal>
