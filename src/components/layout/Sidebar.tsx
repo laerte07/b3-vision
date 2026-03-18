@@ -10,16 +10,16 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/portfolio', label: 'Carteira', icon: Briefcase },
-  { path: '/rebalancing', label: 'Rebalanceamento', icon: Scale },
-  { path: '/contributions', label: 'Aportes', icon: Wallet },
-  { path: '/rentabilidade', label: 'Rentabilidade', icon: LineChart },
-  { path: '/valuations', label: 'Valuations', icon: Calculator },
-  { path: '/score', label: 'Score', icon: Brain },
-  { path: '/correlation', label: 'Correlação', icon: GitBranch },
-  { path: '/reports', label: 'Relatórios', icon: FileText },
-  { path: '/settings', label: 'Configurações', icon: Settings },
+  { path: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/app/portfolio', label: 'Carteira', icon: Briefcase },
+  { path: '/app/rebalancing', label: 'Rebalanceamento', icon: Scale },
+  { path: '/app/contributions', label: 'Aportes', icon: Wallet },
+  { path: '/app/rentabilidade', label: 'Rentabilidade', icon: LineChart },
+  { path: '/app/valuations', label: 'Valuations', icon: Calculator },
+  { path: '/app/score', label: 'Score', icon: Brain },
+  { path: '/app/correlation', label: 'Correlação', icon: GitBranch },
+  { path: '/app/reports', label: 'Relatórios', icon: FileText },
+  { path: '/app/settings', label: 'Configurações', icon: Settings },
 ];
 
 interface SidebarState {
