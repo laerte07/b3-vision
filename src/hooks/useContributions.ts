@@ -127,7 +127,7 @@ export const useConfirmContribution = () => {
 
       // 3. Record ALL items as transactions
       const txRows = input.items
-        .filter(i => i.quantity > 0 && i.price !== undefined)
+        .filter(i => i.quantity > 0)
         .map(item => ({
           user_id: user.id,
           asset_id: item.asset_id,
