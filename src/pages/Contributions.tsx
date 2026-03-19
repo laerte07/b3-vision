@@ -18,6 +18,7 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { formatBRL, formatPct } from '@/lib/format';
 import { parseMoney } from '@/lib/parse-money';
 import { ContributionLaunchModal, LaunchItem } from '@/components/ContributionLaunchModal';
