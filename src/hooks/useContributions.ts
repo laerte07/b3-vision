@@ -81,6 +81,7 @@ export interface ConfirmContributionInput {
     amount: number;
     quantity: number;
     unit_price: number;
+    type: 'compra' | 'venda';
   }[];
 }
 
@@ -90,11 +91,13 @@ export const useConfirmContribution = () => {
 
   return useMutation({
     mutationFn: async (input: ConfirmContributionInput) => {
+      if (!user) throw new Error('Não autenticado');
+
       // 1. Insert contribution
       const { data: contrib, error: cErr } = await supabase
         .from('contributions')
         .insert({
-          user_id: user!.id,
+          user_id: user.id,
           contribution_date: input.contribution_date,
           total_amount: input.total_amount,
           allocation_mode: input.allocation_mode,
@@ -105,12 +108,13 @@ export const useConfirmContribution = () => {
 
       if (cErr) throw cErr;
 
-      // 2. Insert items
-      if (input.items.length > 0) {
+      // 2. Insert contribution items (for history)
+      const buyItems = input.items.filter(i => i.type === 'compra');
+      if (buyItems.length > 0) {
         const { error: iErr } = await supabase
           .from('contribution_items')
           .insert(
-            input.items.map(item => ({
+            buyItems.map(item => ({
               contribution_id: contrib.id,
               asset_id: item.asset_id,
               amount: item.amount,
@@ -121,7 +125,27 @@ export const useConfirmContribution = () => {
         if (iErr) throw iErr;
       }
 
-      // 3. Update positions for each item
+      // 3. Record ALL items as transactions
+      const txRows = input.items
+        .filter(i => i.quantity > 0 && i.price !== undefined)
+        .map(item => ({
+          user_id: user.id,
+          asset_id: item.asset_id,
+          type: item.type,
+          date: input.contribution_date,
+          price: item.unit_price,
+          quantity: item.quantity,
+          fees: 0,
+        }));
+
+      if (txRows.length > 0) {
+        const { error: txErr } = await supabase
+          .from('transactions')
+          .insert(txRows);
+        if (txErr) console.error('[Venda] Erro ao registrar transações:', txErr);
+      }
+
+      // 4. Update positions for each item
       for (const item of input.items) {
         if (item.quantity <= 0) continue;
 
@@ -129,31 +153,60 @@ export const useConfirmContribution = () => {
         const { data: pos } = await supabase
           .from('positions')
           .select('id, quantity, avg_price')
-          .eq('user_id', user!.id)
+          .eq('user_id', user.id)
           .eq('asset_id', item.asset_id)
           .maybeSingle();
 
-        if (pos) {
+        if (item.type === 'venda') {
+          // === SELL LOGIC ===
+          if (!pos) {
+            console.error(`[Venda] Posição não encontrada para asset ${item.asset_id}`);
+            continue;
+          }
           const oldQty = Number(pos.quantity);
           const oldAvg = Number(pos.avg_price);
-          const newQty = oldQty + item.quantity;
-          const newAvg = newQty > 0
-            ? ((oldQty * oldAvg) + (item.quantity * item.unit_price)) / newQty
-            : item.unit_price;
+          const sellQty = Math.min(item.quantity, oldQty); // safety clamp
+          const newQty = oldQty - sellQty;
 
-          await supabase
-            .from('positions')
-            .update({ quantity: newQty, avg_price: newAvg })
-            .eq('id', pos.id);
+          console.log(`[Venda] asset=${item.asset_id} oldQty=${oldQty} sellQty=${sellQty} newQty=${newQty} PM=${oldAvg} (unchanged)`);
+
+          if (newQty <= 0) {
+            // Full sell — zero out position
+            await supabase
+              .from('positions')
+              .update({ quantity: 0, avg_price: 0 })
+              .eq('id', pos.id);
+          } else {
+            // Partial sell — keep avg_price unchanged
+            await supabase
+              .from('positions')
+              .update({ quantity: newQty })
+              .eq('id', pos.id);
+          }
         } else {
-          await supabase
-            .from('positions')
-            .insert({
-              user_id: user!.id,
-              asset_id: item.asset_id,
-              quantity: item.quantity,
-              avg_price: item.unit_price,
-            });
+          // === BUY LOGIC ===
+          if (pos) {
+            const oldQty = Number(pos.quantity);
+            const oldAvg = Number(pos.avg_price);
+            const newQty = oldQty + item.quantity;
+            const newAvg = newQty > 0
+              ? ((oldQty * oldAvg) + (item.quantity * item.unit_price)) / newQty
+              : item.unit_price;
+
+            await supabase
+              .from('positions')
+              .update({ quantity: newQty, avg_price: newAvg })
+              .eq('id', pos.id);
+          } else {
+            await supabase
+              .from('positions')
+              .insert({
+                user_id: user.id,
+                asset_id: item.asset_id,
+                quantity: item.quantity,
+                avg_price: item.unit_price,
+              });
+          }
         }
       }
 
@@ -162,9 +215,10 @@ export const useConfirmContribution = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contributions'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
-      toast.success('Aporte confirmado e posições atualizadas!');
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      toast.success('Lançamento confirmado e posições atualizadas!');
     },
-    onError: (err: any) => toast.error(`Erro ao confirmar aporte: ${err.message}`),
+    onError: (err: any) => toast.error(`Erro ao confirmar lançamento: ${err.message}`),
   });
 };
 
