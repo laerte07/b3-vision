@@ -141,6 +141,17 @@ export function ContributionLaunchModal({
   const handleConfirm = () => {
     const valid = items.filter(i => i.asset_id && i.quantity > 0 && i.price > 0);
     if (valid.length === 0) return;
+
+    // Block if any sell exceeds position
+    for (const v of valid) {
+      if (v.type === 'venda') {
+        const pos = portfolio.find(p => p.id === v.asset_id);
+        if (!pos || v.quantity > pos.quantity) {
+          return; // UI already shows warning, don't proceed
+        }
+      }
+    }
+
     onConfirm(valid, note, date);
   };
 

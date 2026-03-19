@@ -18,6 +18,7 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions, useConfirmContribution, useDeleteContribution, useUpdateContributionNote, Contribution } from '@/hooks/useContributions';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { formatBRL, formatPct } from '@/lib/format';
 import { parseMoney } from '@/lib/parse-money';
 import { ContributionLaunchModal, LaunchItem } from '@/components/ContributionLaunchModal';
@@ -513,15 +514,29 @@ const Contributions = () => {
   // CONFIRM via Launch Modal
   // ============================================================
   const handleLaunchConfirm = async (launchItems: LaunchItem[], note: string, date: string) => {
-    const buyItems = launchItems.filter(i => i.type === 'compra' && i.quantity > 0 && i.price > 0);
+    const validItems = launchItems.filter(i => i.quantity > 0 && i.price > 0 && i.asset_id);
 
-    // Auto-create external assets first
-    const resolvedItems: { asset_id: string; amount: number; quantity: number; unit_price: number }[] = [];
-    for (const li of buyItems) {
+    // Validate sells
+    for (const li of validItems) {
+      if (li.type === 'venda') {
+        const pos = portfolio.find(p => p.id === li.asset_id);
+        if (!pos || li.quantity > pos.quantity) {
+          toast.error(`Quantidade de venda de ${li.ticker} excede a posição disponível (${pos?.quantity ?? 0})`);
+          return;
+        }
+        if (li.quantity <= 0) {
+          toast.error(`Informe uma quantidade válida para venda de ${li.ticker}`);
+          return;
+        }
+      }
+    }
+
+    // Auto-create external assets first (only for buys)
+    const resolvedItems: { asset_id: string; amount: number; quantity: number; unit_price: number; type: 'compra' | 'venda' }[] = [];
+    for (const li of validItems) {
       let assetId = li.asset_id;
 
-      if (li.isExternal && assetId.startsWith('ext:')) {
-        // Create asset in DB
+      if (li.type === 'compra' && li.isExternal && assetId.startsWith('ext:')) {
         const classId = li.class_id || classes?.find(c => c.slug === (li.externalClassSlug ?? 'acoes'))?.id;
         if (!classId || !user) continue;
 
@@ -548,15 +563,21 @@ const Contributions = () => {
         amount: li.price * li.quantity,
         quantity: li.quantity,
         unit_price: li.price,
+        type: li.type,
       });
+
+      console.log(`[Lançamento] ${li.type} ${li.ticker} qty=${li.quantity} price=${li.price} total=${li.price * li.quantity}`);
     }
 
-    const totalAmt = resolvedItems.reduce((s, i) => s + i.amount, 0);
     if (resolvedItems.length === 0) return;
+
+    const buyTotal = resolvedItems.filter(i => i.type === 'compra').reduce((s, i) => s + i.amount, 0);
+    const sellTotal = resolvedItems.filter(i => i.type === 'venda').reduce((s, i) => s + i.amount, 0);
+    const netTotal = buyTotal - sellTotal;
 
     confirmContribution.mutate({
       contribution_date: date,
-      total_amount: totalAmt,
+      total_amount: netTotal,
       allocation_mode: mode,
       note: note || undefined,
       items: resolvedItems,
