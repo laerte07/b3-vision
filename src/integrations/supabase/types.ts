@@ -513,18 +513,27 @@ export type Database = {
           created_at: string
           display_name: string | null
           id: string
+          monthly_expenses_estimate: number | null
+          monthly_income: number | null
+          monthly_investment_goal: number | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           display_name?: string | null
           id: string
+          monthly_expenses_estimate?: number | null
+          monthly_income?: number | null
+          monthly_investment_goal?: number | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           display_name?: string | null
           id?: string
+          monthly_expenses_estimate?: number | null
+          monthly_income?: number | null
+          monthly_investment_goal?: number | null
           updated_at?: string
         }
         Relationships: []
