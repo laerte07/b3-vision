@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fadeUp, stagger } from '@/lib/motion-variants';
 import {
   DollarSign,
@@ -15,17 +15,20 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Activity,
+  Banknote,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, Legend,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
 } from 'recharts';
-import { usePortfolio, useRefreshMarket, PortfolioAsset } from '@/hooks/usePortfolio';
+import { usePortfolio, useRefreshMarket } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions } from '@/hooks/useContributions';
-import { useTransactions, Transaction } from '@/hooks/useTransactions';
-import { useBenchmarkHistory, BenchmarkPoint } from '@/hooks/useBenchmarkHistory';
+import { useTransactions } from '@/hooks/useTransactions';
+import { useBenchmarkHistory } from '@/hooks/useBenchmarkHistory';
 import { buildUnifiedData } from '@/lib/return-engine';
 import { formatBRL, formatPct } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -55,6 +58,7 @@ const Dashboard = () => {
   const refreshMarket = useRefreshMarket();
   const { data: contributions = [] } = useContributions();
   const { data: transactions = [] } = useTransactions();
+  const [showAllAssets, setShowAllAssets] = useState(false);
 
   // Performance chart: last 12 months
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
@@ -126,6 +130,25 @@ const Dashboard = () => {
     assetValues[0] || ({ ticker: '-', pnlPct: 0 } as any)
   );
 
+  // ─── Realized profit from sales ───────────────────────────
+  const realizedProfit = useMemo(() => {
+    // Build a map of avg_price per asset_id from portfolio
+    const avgPriceMap = new Map<string, number>();
+    portfolio.forEach(p => avgPriceMap.set(p.id, p.avg_price));
+
+    // Get sell transactions
+    const sells = transactions.filter(t => t.type === 'venda' || t.type === 'sell');
+
+    let total = 0;
+    sells.forEach(t => {
+      const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
+      const profit = (t.price - avgPrice) * t.quantity - (t.fees || 0);
+      total += profit;
+    });
+
+    return total;
+  }, [transactions, portfolio]);
+
   // Alerts
   const aboveBand: string[] = [];
   const belowBand: string[] = [];
@@ -161,6 +184,7 @@ const Dashboard = () => {
     { icon: TrendingUp, label: 'Melhor Ativo', value: biggestGain?.ticker || '-', detail: biggestGain ? `${biggestGain.pnlPct > 0 ? '+' : ''}${biggestGain.pnlPct.toFixed(1)}%` : '', color: 'text-positive' },
     { icon: TrendingDown, label: 'Pior Ativo', value: biggestLoss?.ticker || '-', detail: biggestLoss ? `${biggestLoss.pnlPct.toFixed(1)}%` : '', color: 'text-negative' },
     { icon: PieIcon, label: 'Classe Dominante', value: classAllocations[0]?.name || '-', detail: classAllocations[0] ? `${topClassPct.toFixed(1)}%` : '', color: 'text-chart-4' },
+    { icon: Banknote, label: 'Lucro Realizado', value: formatBRL(realizedProfit), detail: realizedProfit !== 0 ? 'histórico' : 'sem vendas', color: realizedProfit >= 0 ? 'text-positive' : 'text-negative' },
   ];
 
   // ─── Build performance chart data using shared engine (real TWR) ─
@@ -171,6 +195,9 @@ const Dashboard = () => {
       label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
     }));
   }, [benchmarkData, portfolio, transactions]);
+
+  const displayedAssets = showAllAssets ? assetValues : assetValues.slice(0, 3);
+  const hasMoreAssets = assetValues.length > 3;
 
   // ─── Render ───────────────────────────────────────────────
   if (isLoading) {
@@ -214,7 +241,7 @@ const Dashboard = () => {
       </motion.div>
 
       {/* KPIs */}
-      <motion.div variants={fadeUp} custom={1} className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-4 gap-3 2xl:gap-4">
+      <motion.div variants={fadeUp} custom={1} className="grid grid-cols-2 lg:grid-cols-4 gap-3 2xl:gap-4">
         {[
           { label: 'Patrimônio Total', value: formatBRL(totalPatrimony), sub: `${totalAssets} ativos`, accent: true, glow: true },
           { label: 'Proventos 12m', value: formatBRL(totalDiv12m), sub: `~${formatBRL(totalDiv12m / 12)}/mês` },
@@ -265,26 +292,9 @@ const Dashboard = () => {
                     <stop offset="100%" stopColor="hsl(199, 89%, 48%)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                  strokeOpacity={0.3}
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-                  width={45}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.3} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v.toFixed(0)}%`} width={45} />
                 <RTooltip
                   contentStyle={{
                     backgroundColor: 'hsl(222 41% 8%)',
@@ -301,38 +311,9 @@ const Dashboard = () => {
                   ]}
                   labelFormatter={(label) => label}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="carteira"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={2}
-                  fill="url(#gradCarteira)"
-                  dot={false}
-                  animationDuration={1200}
-                  animationEasing="ease-out"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="cdi"
-                  stroke="hsl(199, 89%, 48%)"
-                  strokeWidth={1.5}
-                  fill="url(#gradCdi)"
-                  dot={false}
-                  strokeDasharray="4 4"
-                  animationDuration={1200}
-                  animationEasing="ease-out"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="ibov"
-                  stroke="hsl(270, 67%, 62%)"
-                  strokeWidth={1.5}
-                  fill="none"
-                  dot={false}
-                  strokeDasharray="4 4"
-                  animationDuration={1200}
-                  animationEasing="ease-out"
-                />
+                <Area type="monotone" dataKey="carteira" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#gradCarteira)" dot={false} animationDuration={1200} animationEasing="ease-out" />
+                <Area type="monotone" dataKey="cdi" stroke="hsl(199, 89%, 48%)" strokeWidth={1.5} fill="url(#gradCdi)" dot={false} strokeDasharray="4 4" animationDuration={1200} animationEasing="ease-out" />
+                <Area type="monotone" dataKey="ibov" stroke="hsl(270, 67%, 62%)" strokeWidth={1.5} fill="none" dot={false} strokeDasharray="4 4" animationDuration={1200} animationEasing="ease-out" />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -343,14 +324,14 @@ const Dashboard = () => {
         </div>
       </motion.div>
 
-      {/* Smart Insights */}
+      {/* Smart Insights — 5 cards including realized profit */}
       <motion.div variants={fadeUp} custom={3}>
         <div className="flex items-center gap-2 mb-3">
           <Zap className="h-3.5 w-3.5 text-primary" />
           <h2 className="section-title">Insights</h2>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-4 gap-3 2xl:gap-4">
-          {insights.map((ins, i) => (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 2xl:gap-4">
+          {insights.map((ins) => (
             <motion.div
               key={ins.label}
               whileHover={{ y: -2, transition: { duration: 0.2 } }}
@@ -367,22 +348,23 @@ const Dashboard = () => {
         </div>
       </motion.div>
 
-      {/* Main grid: Allocation + Sidebar */}
-      <motion.div variants={fadeUp} custom={4} className="grid grid-cols-1 lg:grid-cols-5 2xl:grid-cols-7 gap-4">
-        {/* Allocation Donut */}
-        <div className="lg:col-span-3 2xl:col-span-5 glass-card overflow-hidden">
-          <div className="p-5 pb-0">
+      {/* Main grid: Allocation (larger) + Right column (Renda Passiva + Aportes) */}
+      <motion.div variants={fadeUp} custom={4} className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Allocation Donut — wider */}
+        <div className="lg:col-span-7 glass-card overflow-hidden">
+          <div className="p-5 pb-0 flex items-center justify-between">
             <h2 className="section-title">Alocação por Classe</h2>
+            <span className="text-[11px] text-muted-foreground font-mono">{classAllocations.length} classes</span>
           </div>
           <div className="p-5">
             {pieData.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-12">Cadastre ativos na Carteira para ver a alocação.</p>
             ) : (
-              <div className="flex items-center gap-6">
-                <div className="h-52 w-52 shrink-0">
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="h-56 w-56 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" strokeWidth={2} stroke="hsl(var(--background))">
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" strokeWidth={2} stroke="hsl(var(--background))">
                         {pieData.map((_, i) => (<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />))}
                       </Pie>
                       <Tooltip
@@ -399,61 +381,77 @@ const Dashboard = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex-1 space-y-1.5">
-                  {pieData.map((item, i) => (
-                    <div key={item.name} className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <span className="text-sm text-muted-foreground">{item.name}</span>
+                <div className="flex-1 w-full space-y-0">
+                  {pieData.map((item, i) => {
+                    const maxPct = Math.max(...pieData.map(p => p.pct));
+                    return (
+                      <div key={item.name} className="flex items-center gap-3 py-2 border-b border-border/10 last:border-0 group hover:bg-muted/5 rounded px-2 -mx-2 transition-colors">
+                        <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                        <span className="text-sm text-muted-foreground flex-1 truncate">{item.name}</span>
+                        <div className="w-20 h-1.5 rounded-full bg-border/30 overflow-hidden hidden sm:block">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${(item.pct / maxPct) * 100}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                        </div>
+                        <span className="text-sm font-mono font-semibold w-14 text-right">{item.pct.toFixed(1)}%</span>
+                        <span className="text-xs font-mono text-muted-foreground w-24 text-right hidden md:block">{formatBRL(item.value)}</span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-mono font-medium">{item.pct.toFixed(1)}%</span>
-                        <span className="text-xs font-mono text-muted-foreground">{formatBRL(item.value)}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right column */}
-        <div className="lg:col-span-2 2xl:col-span-2 space-y-4">
-          <motion.div whileHover={{ y: -2, transition: { duration: 0.2 } }} className="glass-card p-5">
+        {/* Right column — Renda Passiva + Aportes stacked */}
+        <div className="lg:col-span-5 flex flex-col gap-4">
+          {/* Renda Passiva */}
+          <motion.div whileHover={{ y: -2, transition: { duration: 0.2 } }} className="glass-card p-5 flex-1">
             <div className="flex items-center gap-2 mb-4">
-              <DollarSign className="h-3.5 w-3.5 text-primary" />
+              <DollarSign className="h-4 w-4 text-primary" />
               <h2 className="section-title">Renda Passiva</h2>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: '12 Meses', value: formatBRL(totalDiv12m) },
-                { label: 'Mensal Médio', value: formatBRL(totalDiv12m / 12) },
-                { label: 'Yield Médio', value: formatPct(avgDY), accent: true },
-                { label: 'Nº de Ativos', value: String(totalAssets) },
-              ].map(s => (
-                <div key={s.label} className="stat-block">
-                  <p className="kpi-label">{s.label}</p>
-                  <p className={cn('text-base font-semibold font-mono mt-1', s.accent && 'text-primary')}>{s.value}</p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="kpi-label">12 Meses</p>
+                <p className="text-lg font-semibold font-mono text-primary">{formatBRL(totalDiv12m)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="kpi-label">Mensal Médio</p>
+                <p className="text-lg font-semibold font-mono">{formatBRL(totalDiv12m / 12)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="kpi-label">Yield Médio</p>
+                <p className="text-base font-semibold font-mono text-primary">{formatPct(avgDY)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="kpi-label">Ativos Pagadores</p>
+                <p className="text-base font-semibold font-mono">{totalAssets}</p>
+              </div>
             </div>
           </motion.div>
 
-          <motion.div whileHover={{ y: -2, transition: { duration: 0.2 } }} className="glass-card p-5">
+          {/* Aportes */}
+          <motion.div whileHover={{ y: -2, transition: { duration: 0.2 } }} className="glass-card p-5 flex-1">
             <div className="flex items-center gap-2 mb-4">
-              <BarChart3 className="h-3.5 w-3.5 text-chart-2" />
+              <BarChart3 className="h-4 w-4 text-chart-2" />
               <h2 className="section-title">Aportes {currentYear}</h2>
             </div>
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {[
-                { label: 'Mês atual', value: formatBRL(monthContribTotal), accent: true },
-                { label: 'Acumulado no ano', value: formatBRL(yearContribTotal) },
-                { label: 'Média mensal', value: formatBRL(avgMonthlyContrib) },
+                { label: 'Mês atual', value: formatBRL(monthContribTotal), accent: true, pct: avgMonthlyContrib > 0 ? Math.min((monthContribTotal / avgMonthlyContrib) * 100, 100) : 0 },
+                { label: 'Acumulado no ano', value: formatBRL(yearContribTotal), accent: false, pct: 100 },
+                { label: 'Média mensal', value: formatBRL(avgMonthlyContrib), accent: false, pct: yearContribTotal > 0 ? (avgMonthlyContrib / (yearContribTotal / Math.max(1, currentMonth + 1))) * 100 : 0 },
               ].map(row => (
-                <div key={row.label} className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{row.label}</span>
-                  <span className={cn('text-sm font-mono font-medium', row.accent && 'text-primary')}>{row.value}</span>
+                <div key={row.label} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{row.label}</span>
+                    <span className={cn('text-sm font-mono font-semibold', row.accent && 'text-primary')}>{row.value}</span>
+                  </div>
+                  {row.label === 'Mês atual' && (
+                    <div className="w-full h-1 rounded-full bg-border/30 overflow-hidden">
+                      <div className="h-full rounded-full bg-primary/60 transition-all duration-500" style={{ width: `${Math.min(row.pct, 100)}%` }} />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -492,10 +490,13 @@ const Dashboard = () => {
         </motion.div>
       )}
 
-      {/* Top Assets */}
+      {/* Top Assets — show 3 initially with "ver mais" */}
       {assetValues.length > 0 && (
         <motion.div variants={fadeUp} custom={6}>
-          <h2 className="section-title mb-3">Top Ativos</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="section-title">Top Ativos</h2>
+            <span className="text-[11px] text-muted-foreground font-mono">{assetValues.length} ativos</span>
+          </div>
           <div className="glass-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -508,32 +509,61 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {assetValues.slice(0, 8).map((asset) => (
-                    <tr key={asset.ticker} className="data-row">
-                      <td className="py-2.5 px-4">
-                        <span className="font-mono font-medium text-foreground">{asset.ticker}</span>
-                        {asset.name && <span className="text-xs text-muted-foreground ml-2">{asset.name}</span>}
-                      </td>
-                      <td className="py-2.5 px-4 text-right font-mono text-sm">{formatBRL(asset.currentValue)}</td>
-                      <td className="py-2.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-14 h-1 rounded-full bg-border/50 overflow-hidden">
-                            <div className="h-full rounded-full bg-primary/50" style={{ width: `${Math.min(asset.pctPortfolio, 100)}%` }} />
+                  <AnimatePresence initial={false}>
+                    {displayedAssets.map((asset) => (
+                      <motion.tr
+                        key={asset.ticker}
+                        className="data-row"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <td className="py-2.5 px-4">
+                          <span className="font-mono font-medium text-foreground">{asset.ticker}</span>
+                          {asset.name && <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">{asset.name}</span>}
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono text-sm">{formatBRL(asset.currentValue)}</td>
+                        <td className="py-2.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-14 h-1 rounded-full bg-border/50 overflow-hidden">
+                              <div className="h-full rounded-full bg-primary/50" style={{ width: `${Math.min(asset.pctPortfolio, 100)}%` }} />
+                            </div>
+                            <span className="font-mono text-xs w-10 text-right">{asset.pctPortfolio.toFixed(1)}%</span>
                           </div>
-                          <span className="font-mono text-xs w-10 text-right">{asset.pctPortfolio.toFixed(1)}%</span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-4 text-right">
-                        <span className={cn('inline-flex items-center gap-1 font-mono text-xs font-medium', asset.pnlPct >= 0 ? 'text-positive' : 'text-negative')}>
-                          {asset.pnlPct >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                          {asset.pnlPct >= 0 ? '+' : ''}{asset.pnlPct.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          <span className={cn('inline-flex items-center gap-1 font-mono text-xs font-medium', asset.pnlPct >= 0 ? 'text-positive' : 'text-negative')}>
+                            {asset.pnlPct >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                            {asset.pnlPct >= 0 ? '+' : ''}{asset.pnlPct.toFixed(1)}%
+                          </span>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </AnimatePresence>
                 </tbody>
               </table>
             </div>
+            {hasMoreAssets && (
+              <div className="border-t border-border/20 px-4 py-2.5">
+                <button
+                  onClick={() => setShowAllAssets(!showAllAssets)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto font-medium"
+                >
+                  {showAllAssets ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5" />
+                      Mostrar menos
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      Ver mais ({assetValues.length - 3} ativos)
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </motion.div>
       )}
