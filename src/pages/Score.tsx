@@ -474,7 +474,24 @@ const Score = () => {
                         </TableCell>
                         {PILLAR_KEYS.map(k => (
                           <TableCell key={k} className="text-center font-mono text-xs">
-                            {fmtNorm(r.score[`${k}Norm` as keyof PillarScore] as number | null)}
+                            <TooltipProvider delayDuration={200}>
+                              <UITooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help border-b border-dotted border-muted-foreground/40">
+                                    {fmtNorm(r.score[`${k}Norm` as keyof PillarScore] as number | null)}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs space-y-0.5 max-w-48">
+                                  <p className="font-semibold mb-1">{PILLAR_LONG[k]} — {r.ticker}</p>
+                                  {PILLAR_RAW_KEYS[k].map(({ key, label }) => (
+                                    <div key={key} className="flex justify-between gap-3">
+                                      <span className="text-muted-foreground">{label}</span>
+                                      <span className="font-mono">{fmtRaw(r.score.rawInputs[key])}</span>
+                                    </div>
+                                  ))}
+                                </TooltipContent>
+                              </UITooltip>
+                            </TooltipProvider>
                           </TableCell>
                         ))}
                         <TableCell className="text-center">{scoreBadgeEl(r.score.totalAdjusted)}</TableCell>
