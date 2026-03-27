@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle, Brain, Save, Shield, ArrowUpDown, ChevronUp, ChevronDown, Info } from 'lucide-react';
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -47,6 +48,15 @@ function scoreBadgeEl(score: number) {
 }
 
 const fmtNorm = (n: number | null) => n == null ? 'N/D' : `${(n * 100).toFixed(0)}%`;
+const fmtRaw = (v: number | null | undefined) => v == null ? '—' : typeof v === 'number' ? v.toFixed(2) : String(v);
+
+const PILLAR_RAW_KEYS: Record<PillarKey, { key: string; label: string }[]> = {
+  quality: [{ key: 'roe', label: 'ROE' }, { key: 'margin', label: 'Margem' }, { key: 'debtEbitda', label: 'Dív/EBITDA' }],
+  growth: [{ key: 'revenueGrowth', label: 'Cresc. Receita' }, { key: 'payout', label: 'Payout' }],
+  valuation: [{ key: 'pe', label: 'P/L' }, { key: 'pb', label: 'P/VP' }, { key: 'evEbitda', label: 'EV/EBITDA' }],
+  risk: [{ key: 'debtEbitda', label: 'Dív/EBITDA' }],
+  dividends: [{ key: 'dy', label: 'DY' }, { key: 'payout', label: 'Payout' }],
+};
 
 const Score = () => {
   const { data: portfolio = [], isLoading } = usePortfolio();
@@ -464,7 +474,24 @@ const Score = () => {
                         </TableCell>
                         {PILLAR_KEYS.map(k => (
                           <TableCell key={k} className="text-center font-mono text-xs">
-                            {fmtNorm(r.score[`${k}Norm` as keyof PillarScore] as number | null)}
+                            <TooltipProvider delayDuration={200}>
+                              <UITooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help border-b border-dotted border-muted-foreground/40">
+                                    {fmtNorm(r.score[`${k}Norm` as keyof PillarScore] as number | null)}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs space-y-0.5 max-w-48">
+                                  <p className="font-semibold mb-1">{PILLAR_LONG[k]} — {r.ticker}</p>
+                                  {PILLAR_RAW_KEYS[k].map(({ key, label }) => (
+                                    <div key={key} className="flex justify-between gap-3">
+                                      <span className="text-muted-foreground">{label}</span>
+                                      <span className="font-mono">{fmtRaw(r.score.rawInputs[key])}</span>
+                                    </div>
+                                  ))}
+                                </TooltipContent>
+                              </UITooltip>
+                            </TooltipProvider>
                           </TableCell>
                         ))}
                         <TableCell className="text-center">{scoreBadgeEl(r.score.totalAdjusted)}</TableCell>
