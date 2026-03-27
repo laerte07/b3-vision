@@ -48,6 +48,15 @@ function scoreBadgeEl(score: number) {
 }
 
 const fmtNorm = (n: number | null) => n == null ? 'N/D' : `${(n * 100).toFixed(0)}%`;
+const fmtRaw = (v: number | null | undefined) => v == null ? '—' : typeof v === 'number' ? v.toFixed(2) : String(v);
+
+const PILLAR_RAW_KEYS: Record<PillarKey, { key: string; label: string }[]> = {
+  quality: [{ key: 'roe', label: 'ROE' }, { key: 'margin', label: 'Margem' }, { key: 'debtEbitda', label: 'Dív/EBITDA' }],
+  growth: [{ key: 'revenueGrowth', label: 'Cresc. Receita' }, { key: 'payout', label: 'Payout' }],
+  valuation: [{ key: 'pe', label: 'P/L' }, { key: 'pb', label: 'P/VP' }, { key: 'evEbitda', label: 'EV/EBITDA' }],
+  risk: [{ key: 'debtEbitda', label: 'Dív/EBITDA' }],
+  dividends: [{ key: 'dy', label: 'DY' }, { key: 'payout', label: 'Payout' }],
+};
 
 const Score = () => {
   const { data: portfolio = [], isLoading } = usePortfolio();
