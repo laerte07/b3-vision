@@ -127,9 +127,12 @@ const Score = () => {
   const selectedTicker = selectedStock?.ticker ?? '';
 
   // Multi-select for comparative radar
-  const RADAR_COLORS = ['hsl(var(--primary))', 'hsl(142, 71%, 45%)', 'hsl(280, 67%, 55%)', 'hsl(38, 92%, 50%)', 'hsl(0, 72%, 51%)'];
+  const RADAR_COLORS = ['hsl(var(--primary))', 'hsl(142 71% 45%)', 'hsl(280 67% 55%)', 'hsl(38 92% 50%)', 'hsl(0 72% 51%)'];
   const [compareIds, setCompareIds] = useState<string[]>([]);
-  const effectiveCompareIds = compareIds.length > 0 ? compareIds : (effectiveSelectedId ? [effectiveSelectedId] : []);
+  const effectiveCompareIds = useMemo(
+    () => compareIds.length > 0 ? compareIds : (effectiveSelectedId ? [effectiveSelectedId] : []),
+    [compareIds, effectiveSelectedId]
+  );
 
   const toggleCompare = (id: string) => {
     setCompareIds(prev => {
