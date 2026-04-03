@@ -32,6 +32,23 @@ export const useScoreHistory = (assetId?: string) => {
   });
 };
 
+export const useAllScoreHistory = () => {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['score_history_all', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('score_history')
+        .select('*')
+        .eq('user_id', user!.id)
+        .order('snapshot_date', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+};
+
 export const useSaveScoreSnapshot = () => {
   const qc = useQueryClient();
   const { user } = useAuth();

@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
-import { useScoreHistory, useSaveScoreSnapshot } from '@/hooks/useScoreHistory';
+import { useScoreHistory, useAllScoreHistory, useSaveScoreSnapshot } from '@/hooks/useScoreHistory';
 import {
   computeScores, scoreColor, scoreLabel,
   PILLAR_KEYS, SECTOR_LABELS,
@@ -143,6 +143,42 @@ const Score = () => {
   };
 
   const { data: history = [] } = useScoreHistory(effectiveSelectedId || undefined);
+  const { data: allHistory = [] } = useAllScoreHistory();
+
+  const HISTORY_COLORS = ['hsl(var(--primary))', 'hsl(142 71% 45%)', 'hsl(280 67% 55%)', 'hsl(38 92% 50%)', 'hsl(0 72% 51%)', 'hsl(200 70% 50%)', 'hsl(320 65% 50%)'];
+  const [historyAssetIds, setHistoryAssetIds] = useState<string[]>([]);
+
+  const toggleHistoryAsset = (id: string) => {
+    setHistoryAssetIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 7) return prev;
+      return [...prev, id];
+    });
+  };
+
+  const effectiveHistoryIds = useMemo(
+    () => historyAssetIds.length > 0 ? historyAssetIds : (effectiveSelectedId ? [effectiveSelectedId] : []),
+    [historyAssetIds, effectiveSelectedId]
+  );
+
+  const multiHistoryChart = useMemo(() => {
+    if (allHistory.length === 0) return [];
+    const tickerMap = new Map(stocks.map(s => [s.id, s.ticker]));
+    const relevantHistory = allHistory.filter((h: any) => effectiveHistoryIds.includes(h.asset_id));
+    const dates = [...new Set(relevantHistory.map((h: any) => h.snapshot_date as string))].sort();
+    return dates.map(date => {
+      const entry: Record<string, any> = {
+        date: new Date(date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' }),
+      };
+      effectiveHistoryIds.forEach(id => {
+        const ticker = tickerMap.get(id);
+        if (!ticker) return;
+        const point = relevantHistory.find((h: any) => h.asset_id === id && h.snapshot_date === date);
+        if (point) entry[ticker] = Number((point as any).score_total);
+      });
+      return entry;
+    });
+  }, [allHistory, effectiveHistoryIds, stocks]);
 
   const comparativeRadarData = useMemo(() => {
     const pillars = [
@@ -479,27 +515,94 @@ const Score = () => {
             </Card>
           </motion.div>
 
-          {/* History */}
-          {historyChart.length > 1 && (
-            <motion.div variants={fadeUp} custom={2}><Card>
-              <CardHeader>
-                <CardTitle className="text-base">Histórico de Score – {selectedTicker}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-56">
+          {/* Multi-Asset Score Evolution */}
+          <motion.div variants={fadeUp} custom={2}><Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base">Evolução do Score</CardTitle>
+                {historyAssetIds.length > 0 && (
+                  <button
+                    onClick={() => setHistoryAssetIds([])}
+                    className="px-2 py-0.5 rounded text-[10px] border border-border/50 text-muted-foreground hover:text-destructive"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                {ranking.slice(0, 10).map(r => {
+                  const isActive = effectiveHistoryIds.includes(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => toggleHistoryAsset(r.id)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-all ${
+                        isActive
+                          ? 'bg-primary/15 border-primary/50 text-primary font-bold'
+                          : 'border-border/50 text-muted-foreground hover:border-primary/30'
+                      }`}
+                    >
+                      {r.ticker}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {allHistory.length === 0
+                  ? 'Salve snapshots para ver a evolução ao longo do tempo'
+                  : `Selecione até 7 ativos • ${allHistory.length} registros salvos`}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {multiHistoryChart.length > 1 ? (
+                <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={historyChart}>
+                    <LineChart data={multiHistoryChart}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="date" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                      <XAxis dataKey="date" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
                       <YAxis domain={[0, 100]} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                       <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))' }} />
-                      <Line type="monotone" dataKey="score" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                      {effectiveHistoryIds.map((id, i) => {
+                        const st = stocks.find(s => s.id === id);
+                        if (!st) return null;
+                        return (
+                          <Line
+                            key={id}
+                            type="monotone"
+                            dataKey={st.ticker}
+                            stroke={HISTORY_COLORS[i % HISTORY_COLORS.length]}
+                            strokeWidth={2}
+                            dot={{ r: 3 }}
+                            connectNulls
+                          />
+                        );
+                      })}
                     </LineChart>
                   </ResponsiveContainer>
+                  {effectiveHistoryIds.length > 1 && (
+                    <div className="flex items-center justify-center gap-4 mt-2">
+                      {effectiveHistoryIds.map((id, i) => {
+                        const st = stocks.find(s => s.id === id);
+                        if (!st) return null;
+                        return (
+                          <div key={id} className="flex items-center gap-1.5 text-[10px]">
+                            <span className="w-3 h-1 rounded-full" style={{ backgroundColor: HISTORY_COLORS[i % HISTORY_COLORS.length] }} />
+                            <span className="font-mono">{st.ticker}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </CardContent>
-            </Card></motion.div>
-          )}
+              ) : (
+                <p className="text-center text-muted-foreground py-8 text-sm">
+                  {allHistory.length === 0
+                    ? 'Nenhum snapshot salvo ainda. Clique em "Salvar Snapshot" para começar a registrar a evolução.'
+                    : 'Dados insuficientes. Salve mais snapshots em dias diferentes.'}
+                </p>
+              )}
+            </CardContent>
+          </Card></motion.div>
 
           {/* Ranking */}
           <motion.div variants={fadeUp} custom={3}><Card>
