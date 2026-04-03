@@ -126,17 +126,44 @@ const Score = () => {
   const selectedScore = effectiveSelectedId ? scoreMap.get(effectiveSelectedId) : null;
   const selectedTicker = selectedStock?.ticker ?? '';
 
+  // Multi-select for comparative radar
+  const RADAR_COLORS = ['hsl(var(--primary))', 'hsl(142 71% 45%)', 'hsl(280 67% 55%)', 'hsl(38 92% 50%)', 'hsl(0 72% 51%)'];
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const effectiveCompareIds = useMemo(
+    () => compareIds.length > 0 ? compareIds : (effectiveSelectedId ? [effectiveSelectedId] : []),
+    [compareIds, effectiveSelectedId]
+  );
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 5) return prev;
+      return [...prev, id];
+    });
+  };
+
   const { data: history = [] } = useScoreHistory(effectiveSelectedId || undefined);
 
-  const radarData = selectedScore
-    ? [
-        { pillar: 'Qualidade', value: (selectedScore.qualityNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Crescimento', value: (selectedScore.growthNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Valuation', value: (selectedScore.valuationNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Risco', value: (selectedScore.riskNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Dividendos', value: (selectedScore.dividendsNorm ?? 0) * 100, fullMark: 100 },
-      ]
-    : [];
+  const comparativeRadarData = useMemo(() => {
+    const pillars = [
+      { key: 'qualityNorm', label: 'Qualidade' },
+      { key: 'growthNorm', label: 'Crescimento' },
+      { key: 'valuationNorm', label: 'Valuation' },
+      { key: 'riskNorm', label: 'Risco' },
+      { key: 'dividendsNorm', label: 'Dividendos' },
+    ];
+    return pillars.map(p => {
+      const entry: Record<string, any> = { pillar: p.label, fullMark: 100 };
+      effectiveCompareIds.forEach(id => {
+        const sc = scoreMap.get(id);
+        const st = stocks.find(s => s.id === id);
+        if (sc && st) {
+          entry[st.ticker] = ((sc[p.key as keyof PillarScore] as number | null) ?? 0) * 100;
+        }
+      });
+      return entry;
+    });
+  }, [effectiveCompareIds, scoreMap, stocks]);
 
   const historyChart = (history ?? []).map((h: any) => ({
     date: new Date(h.snapshot_date).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
@@ -229,8 +256,91 @@ const Score = () => {
             {/* Radar */}
             <Card>
               <CardHeader>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-base">Radar Comparativo</CardTitle>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {ranking.slice(0, 10).map((r, i) => {
+                      const isActive = effectiveCompareIds.includes(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => {
+                            toggleCompare(r.id);
+                            if (!selectedId) setSelectedId(r.id);
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-all ${
+                            isActive
+                              ? 'bg-primary/15 border-primary/50 text-primary font-bold'
+                              : 'border-border/50 text-muted-foreground hover:border-primary/30'
+                          }`}
+                        >
+                          {r.ticker}
+                        </button>
+                      );
+                    })}
+                    {compareIds.length > 0 && (
+                      <button
+                        onClick={() => setCompareIds([])}
+                        className="px-2 py-0.5 rounded text-[10px] border border-border/50 text-muted-foreground hover:text-destructive"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">Selecione até 5 ativos para comparar</p>
+              </CardHeader>
+              <CardContent>
+                {comparativeRadarData.length > 0 && effectiveCompareIds.length > 0 ? (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart data={comparativeRadarData} cx="50%" cy="50%" outerRadius="72%">
+                        <PolarGrid stroke="hsl(var(--border))" />
+                        <PolarAngleAxis dataKey="pillar" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
+                        {effectiveCompareIds.map((id, i) => {
+                          const st = stocks.find(s => s.id === id);
+                          if (!st) return null;
+                          return (
+                            <Radar
+                              key={id}
+                              name={st.ticker}
+                              dataKey={st.ticker}
+                              stroke={RADAR_COLORS[i % RADAR_COLORS.length]}
+                              fill={RADAR_COLORS[i % RADAR_COLORS.length]}
+                              fillOpacity={effectiveCompareIds.length === 1 ? 0.25 : 0.10}
+                              strokeWidth={2}
+                            />
+                          );
+                        })}
+                      </RadarChart>
+                    </ResponsiveContainer>
+                    {effectiveCompareIds.length > 1 && (
+                      <div className="flex items-center justify-center gap-4 mt-2">
+                        {effectiveCompareIds.map((id, i) => {
+                          const st = stocks.find(s => s.id === id);
+                          if (!st) return null;
+                          return (
+                            <div key={id} className="flex items-center gap-1.5 text-[10px]">
+                              <span className="w-3 h-1 rounded-full" style={{ backgroundColor: RADAR_COLORS[i % RADAR_COLORS.length] }} />
+                              <span className="font-mono">{st.ticker}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">Selecione ativos acima</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Score detail */}
+            <Card>
+              <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Radar do Ativo</CardTitle>
+                  <CardTitle className="text-base">Score Total</CardTitle>
                   <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
                     <SelectTrigger className="w-40">
                       <SelectValue placeholder="Selecione" />
@@ -242,29 +352,6 @@ const Score = () => {
                     </SelectContent>
                   </Select>
                 </div>
-              </CardHeader>
-              <CardContent>
-                {radarData.length > 0 ? (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
-                        <PolarGrid stroke="hsl(var(--border))" />
-                        <PolarAngleAxis dataKey="pillar" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
-                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar name={selectedTicker} dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} strokeWidth={2} />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">Selecione um ativo</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Score detail */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Score Total — {selectedTicker}</CardTitle>
               </CardHeader>
               <CardContent>
                 {selectedScore ? (
