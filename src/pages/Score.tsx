@@ -339,7 +339,19 @@ const Score = () => {
             {/* Score detail */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Score Total — {selectedTicker}</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Score Total</CardTitle>
+                  <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ranking.map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.ticker}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent>
                 {selectedScore ? (
