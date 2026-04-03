@@ -126,17 +126,41 @@ const Score = () => {
   const selectedScore = effectiveSelectedId ? scoreMap.get(effectiveSelectedId) : null;
   const selectedTicker = selectedStock?.ticker ?? '';
 
+  // Multi-select for comparative radar
+  const RADAR_COLORS = ['hsl(var(--primary))', 'hsl(142, 71%, 45%)', 'hsl(280, 67%, 55%)', 'hsl(38, 92%, 50%)', 'hsl(0, 72%, 51%)'];
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const effectiveCompareIds = compareIds.length > 0 ? compareIds : (effectiveSelectedId ? [effectiveSelectedId] : []);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 5) return prev;
+      return [...prev, id];
+    });
+  };
+
   const { data: history = [] } = useScoreHistory(effectiveSelectedId || undefined);
 
-  const radarData = selectedScore
-    ? [
-        { pillar: 'Qualidade', value: (selectedScore.qualityNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Crescimento', value: (selectedScore.growthNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Valuation', value: (selectedScore.valuationNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Risco', value: (selectedScore.riskNorm ?? 0) * 100, fullMark: 100 },
-        { pillar: 'Dividendos', value: (selectedScore.dividendsNorm ?? 0) * 100, fullMark: 100 },
-      ]
-    : [];
+  const comparativeRadarData = useMemo(() => {
+    const pillars = [
+      { key: 'qualityNorm', label: 'Qualidade' },
+      { key: 'growthNorm', label: 'Crescimento' },
+      { key: 'valuationNorm', label: 'Valuation' },
+      { key: 'riskNorm', label: 'Risco' },
+      { key: 'dividendsNorm', label: 'Dividendos' },
+    ];
+    return pillars.map(p => {
+      const entry: Record<string, any> = { pillar: p.label, fullMark: 100 };
+      effectiveCompareIds.forEach(id => {
+        const sc = scoreMap.get(id);
+        const st = stocks.find(s => s.id === id);
+        if (sc && st) {
+          entry[st.ticker] = ((sc[p.key as keyof PillarScore] as number | null) ?? 0) * 100;
+        }
+      });
+      return entry;
+    });
+  }, [effectiveCompareIds, scoreMap, stocks]);
 
   const historyChart = (history ?? []).map((h: any) => ({
     date: new Date(h.snapshot_date).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
