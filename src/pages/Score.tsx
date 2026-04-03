@@ -143,6 +143,42 @@ const Score = () => {
   };
 
   const { data: history = [] } = useScoreHistory(effectiveSelectedId || undefined);
+  const { data: allHistory = [] } = useAllScoreHistory();
+
+  const HISTORY_COLORS = ['hsl(var(--primary))', 'hsl(142 71% 45%)', 'hsl(280 67% 55%)', 'hsl(38 92% 50%)', 'hsl(0 72% 51%)', 'hsl(200 70% 50%)', 'hsl(320 65% 50%)'];
+  const [historyAssetIds, setHistoryAssetIds] = useState<string[]>([]);
+
+  const toggleHistoryAsset = (id: string) => {
+    setHistoryAssetIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 7) return prev;
+      return [...prev, id];
+    });
+  };
+
+  const effectiveHistoryIds = useMemo(
+    () => historyAssetIds.length > 0 ? historyAssetIds : (effectiveSelectedId ? [effectiveSelectedId] : []),
+    [historyAssetIds, effectiveSelectedId]
+  );
+
+  const multiHistoryChart = useMemo(() => {
+    if (allHistory.length === 0) return [];
+    const tickerMap = new Map(stocks.map(s => [s.id, s.ticker]));
+    const relevantHistory = allHistory.filter((h: any) => effectiveHistoryIds.includes(h.asset_id));
+    const dates = [...new Set(relevantHistory.map((h: any) => h.snapshot_date as string))].sort();
+    return dates.map(date => {
+      const entry: Record<string, any> = {
+        date: new Date(date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' }),
+      };
+      effectiveHistoryIds.forEach(id => {
+        const ticker = tickerMap.get(id);
+        if (!ticker) return;
+        const point = relevantHistory.find((h: any) => h.asset_id === id && h.snapshot_date === date);
+        if (point) entry[ticker] = Number((point as any).score_total);
+      });
+      return entry;
+    });
+  }, [allHistory, effectiveHistoryIds, stocks]);
 
   const comparativeRadarData = useMemo(() => {
     const pillars = [
