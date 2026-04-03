@@ -256,34 +256,82 @@ const Score = () => {
             {/* Radar */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Radar do Ativo</CardTitle>
-                  <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ranking.map(r => (
-                        <SelectItem key={r.id} value={r.id}>{r.ticker}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-base">Radar Comparativo</CardTitle>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {ranking.slice(0, 10).map((r, i) => {
+                      const isActive = effectiveCompareIds.includes(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => {
+                            toggleCompare(r.id);
+                            if (!selectedId) setSelectedId(r.id);
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-all ${
+                            isActive
+                              ? 'bg-primary/15 border-primary/50 text-primary font-bold'
+                              : 'border-border/50 text-muted-foreground hover:border-primary/30'
+                          }`}
+                        >
+                          {r.ticker}
+                        </button>
+                      );
+                    })}
+                    {compareIds.length > 0 && (
+                      <button
+                        onClick={() => setCompareIds([])}
+                        className="px-2 py-0.5 rounded text-[10px] border border-border/50 text-muted-foreground hover:text-destructive"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground mt-1">Selecione até 5 ativos para comparar</p>
               </CardHeader>
               <CardContent>
-                {radarData.length > 0 ? (
-                  <div className="h-72">
+                {comparativeRadarData.length > 0 && effectiveCompareIds.length > 0 ? (
+                  <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
+                      <RadarChart data={comparativeRadarData} cx="50%" cy="50%" outerRadius="72%">
                         <PolarGrid stroke="hsl(var(--border))" />
                         <PolarAngleAxis dataKey="pillar" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                         <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar name={selectedTicker} dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} strokeWidth={2} />
+                        {effectiveCompareIds.map((id, i) => {
+                          const st = stocks.find(s => s.id === id);
+                          if (!st) return null;
+                          return (
+                            <Radar
+                              key={id}
+                              name={st.ticker}
+                              dataKey={st.ticker}
+                              stroke={RADAR_COLORS[i % RADAR_COLORS.length]}
+                              fill={RADAR_COLORS[i % RADAR_COLORS.length]}
+                              fillOpacity={effectiveCompareIds.length === 1 ? 0.25 : 0.10}
+                              strokeWidth={2}
+                            />
+                          );
+                        })}
                       </RadarChart>
                     </ResponsiveContainer>
+                    {effectiveCompareIds.length > 1 && (
+                      <div className="flex items-center justify-center gap-4 mt-2">
+                        {effectiveCompareIds.map((id, i) => {
+                          const st = stocks.find(s => s.id === id);
+                          if (!st) return null;
+                          return (
+                            <div key={id} className="flex items-center gap-1.5 text-[10px]">
+                              <span className="w-3 h-1 rounded-full" style={{ backgroundColor: RADAR_COLORS[i % RADAR_COLORS.length] }} />
+                              <span className="font-mono">{st.ticker}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <p className="text-center text-muted-foreground py-8">Selecione um ativo</p>
+                  <p className="text-center text-muted-foreground py-8">Selecione ativos acima</p>
                 )}
               </CardContent>
             </Card>
