@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
-import { useScoreHistory, useSaveScoreSnapshot } from '@/hooks/useScoreHistory';
+import { useScoreHistory, useAllScoreHistory, useSaveScoreSnapshot } from '@/hooks/useScoreHistory';
 import {
   computeScores, scoreColor, scoreLabel,
   PILLAR_KEYS, SECTOR_LABELS,
