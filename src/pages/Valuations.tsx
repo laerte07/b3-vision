@@ -109,21 +109,47 @@ const useAutoFill = (ticker: string, portfolio: PortfolioAsset[]) => {
   const asset = portfolio.find(a => a.ticker === ticker);
   if (!asset) return null;
   const f = asset.fundamentals;
+  const overrides = (asset as any).overrides as Record<string, any> | undefined;
+
+  const lpa = f?.lpa ?? 0;
+  const totalShares = f?.total_shares ?? 0;
+  const margin = f?.margin ?? 0;
+  const payout = f?.payout ?? 0;
+  const roe = f?.roe ?? 0;
+
+  // Estimate net income: override > LPA*shares > margin-based estimate
+  let netIncome = 0;
+  let netIncomeSource = 'nd';
+  const overrideNI = overrides?.net_income_ttm;
+  if (overrideNI != null && typeof overrideNI === 'number' && overrideNI !== 0) {
+    netIncome = overrideNI;
+    netIncomeSource = 'manual';
+  } else if (lpa !== 0 && totalShares > 0) {
+    netIncome = lpa * totalShares;
+    netIncomeSource = 'calculado (LPA × Ações)';
+  }
+
+  // Historical net incomes from overrides
+  const netIncomeYears: Record<string, number | null> = overrides?.net_income_years ?? {};
+
   return {
     price: asset.last_price ?? asset.avg_price,
-    lpa: f?.lpa ?? 0,
+    lpa,
     vpa: f?.vpa ?? 0,
-    roe: f?.roe ?? 0,
-    payout: f?.payout ?? 0,
+    roe,
+    payout,
     pe_ratio: f?.pe_ratio ?? 0,
     pb_ratio: f?.pb_ratio ?? 0,
     ev: f?.ev ?? 0,
     ebitda: f?.ebitda ?? 0,
     net_debt: f?.net_debt ?? 0,
-    total_shares: f?.total_shares ?? 0,
+    total_shares: totalShares,
     dividend_yield: f?.dividend_yield ?? 0,
-    margin: f?.margin ?? 0,
+    margin,
     revenue_growth: f?.revenue_growth ?? 0,
+    netIncome,
+    netIncomeSource,
+    netIncomeYears,
   };
 };
 
