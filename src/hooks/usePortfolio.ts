@@ -176,6 +176,7 @@ export const usePortfolio = () => {
 
           fundamentals,
           effective_dy,
+          overrides: ovJson,
         } as PortfolioAsset;
       });
     },
