@@ -109,7 +109,7 @@ const useAutoFill = (ticker: string, portfolio: PortfolioAsset[]) => {
   const asset = portfolio.find(a => a.ticker === ticker);
   if (!asset) return null;
   const f = asset.fundamentals;
-  const overrides = (asset as any).overrides as Record<string, any> | undefined;
+  const overrides = asset.overrides ?? {};
 
   const lpa = f?.lpa ?? 0;
   const totalShares = f?.total_shares ?? 0;
