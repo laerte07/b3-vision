@@ -293,7 +293,12 @@ const Lynch = () => {
 // --- VFF (DCF) with auto growth rate ---
 const VFF = ({ years }: { years: 3 | 5 }) => {
   const initialProfits = years === 3 ? [0, 0, 0] : [0, 0, 0, 0, 0];
-  const [p, setP] = useState({ ticker: '', price: 0, shares: 0, discount: 15, perpetuity: 3, profits: initialProfits, roe: 0, payout: 0, autoGrowth: 0 });
+  const [p, setP] = useState({
+    ticker: '', price: 0, shares: 0, discount: 15, perpetuity: 3,
+    profits: initialProfits, roe: 0, payout: 0, autoGrowth: 0,
+    netIncomeBase: 0, useAutoProjection: true,
+  });
+  const [dataSource, setDataSource] = useState({ netIncome: 'nd', growth: 'nd' });
   const { data: portfolio = [] } = usePortfolio();
   const save = useSaveValuation();
 
@@ -302,20 +307,76 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
     if (auto) {
       const roe = auto.roe || 0;
       const payout = auto.payout || 0;
-      const autoGrowth = (1 - payout / 100) * (roe / 100) * 100;
-      setP({ ...p, ticker: t, price: auto.price, shares: auto.total_shares, roe, payout, autoGrowth });
+      // Growth: g = (1 - payout) × ROE, capped 0-15%
+      let rawGrowth = (1 - payout / 100) * (roe / 100) * 100;
+      rawGrowth = Math.max(0, Math.min(15, rawGrowth));
+      const growthSource = roe > 0 && payout > 0 ? 'calculado (ROE × retenção)' : 'nd';
+
+      const baseNI = auto.netIncome;
+      const g = rawGrowth / 100;
+
+      // Project profits using growth rate
+      const projected = Array.from({ length: years }, (_, i) =>
+        Math.round(baseNI * Math.pow(1 + g, i + 1))
+      );
+
+      setP({
+        ticker: t, price: auto.price, shares: auto.total_shares,
+        roe, payout, autoGrowth: Math.round(rawGrowth * 100) / 100,
+        discount: 15, perpetuity: 3,
+        profits: baseNI > 0 ? projected : initialProfits,
+        netIncomeBase: baseNI,
+        useAutoProjection: baseNI > 0,
+      });
+      setDataSource({ netIncome: auto.netIncomeSource, growth: growthSource });
     } else {
-      setP({ ...p, ticker: t });
+      setP(prev => ({ ...prev, ticker: t }));
     }
+  };
+
+  // Reproject when growth changes and auto is on
+  const handleGrowthChange = (v: string) => {
+    const newGrowth = +v;
+    const g = newGrowth / 100;
+    const base = p.netIncomeBase;
+    const projected = base > 0 && p.useAutoProjection
+      ? Array.from({ length: years }, (_, i) => Math.round(base * Math.pow(1 + g, i + 1)))
+      : p.profits;
+    setP(prev => ({ ...prev, autoGrowth: newGrowth, profits: projected }));
+    setDataSource(prev => ({ ...prev, growth: 'manual' }));
   };
 
   const r = p.discount / 100;
   const g = p.perpetuity / 100;
+
+  // Sanity checks
+  const warnings: string[] = [];
+  if (p.profits.every(v => v === 0)) warnings.push('Lucro líquido zerado — verifique os dados fundamentais.');
+  if (p.shares === 0) warnings.push('Número de ações = 0.');
+  if (p.discount <= p.perpetuity) warnings.push('Taxa de desconto deve ser maior que a perpétua.');
+  if (p.autoGrowth > 20) warnings.push(`Crescimento alto (${p.autoGrowth}%) — ajustado automaticamente.`);
+
   const pvProfits = p.profits.reduce((sum, profit, i) => sum + profit / Math.pow(1 + r, i + 1), 0);
-  const terminal = r > g ? (p.profits[p.profits.length - 1] * (1 + g)) / (r - g) : 0;
+  const lastProfit = p.profits[p.profits.length - 1];
+  const terminal = r > g && lastProfit > 0 ? (lastProfit * (1 + g)) / (r - g) : 0;
   const pvTerminal = terminal / Math.pow(1 + r, p.profits.length);
   const marketCapProjected = pvProfits + pvTerminal;
   const fv = p.shares > 0 ? marketCapProjected / p.shares : 0;
+
+  // Debug log
+  console.log(`[ValuationEngine VFF${years}]`, {
+    ticker: p.ticker,
+    lucro_base: p.netIncomeBase,
+    fonte_lucro: dataSource.netIncome,
+    crescimento_g: p.autoGrowth,
+    fonte_crescimento: dataSource.growth,
+    taxa_desconto: p.discount,
+    lucros_projetados: p.profits,
+    valor_terminal: terminal,
+    vp_terminal: pvTerminal,
+    valor_total: marketCapProjected,
+    preco_justo: fv,
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -326,16 +387,80 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={p.ticker} onChange={onSelectTicker} />
+
+          {warnings.length > 0 && (
+            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 space-y-1">
+              {warnings.map((w, i) => (
+                <p key={i} className="text-xs text-yellow-600 dark:text-yellow-400">⚠️ {w}</p>
+              ))}
+            </div>
+          )}
+
           <FieldRow label="Preço Atual (R$)" value={p.price} onChange={v => setP({ ...p, price: +v })} />
           <FieldRow label="Total de Ações" value={p.shares} onChange={v => setP({ ...p, shares: +v })} step="1" hint="Auto-preenchido" />
-          <FieldRow label="Taxa Crescimento Calc. (%)" value={p.autoGrowth.toFixed(2)} onChange={v => setP({ ...p, autoGrowth: +v })} hint="g = (1 - Payout) × ROE. Editável." />
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Lucro Base (R$)</Label>
+              <span className="text-[10px] text-muted-foreground">Fonte: {dataSource.netIncome}</span>
+            </div>
+            <Input type="number" value={p.netIncomeBase} onChange={e => {
+              const ni = +e.target.value;
+              const gRate = p.autoGrowth / 100;
+              const projected = ni > 0 ? Array.from({ length: years }, (_, i) => Math.round(ni * Math.pow(1 + gRate, i + 1))) : p.profits;
+              setP(prev => ({ ...prev, netIncomeBase: ni, profits: projected }));
+              setDataSource(prev => ({ ...prev, netIncome: 'manual' }));
+            }} step="1" className="font-mono h-9" />
+            <p className="text-[10px] text-muted-foreground">Lucro líquido base para projeção. Editável.</p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Crescimento (g) %</Label>
+              <span className="text-[10px] text-muted-foreground">Fonte: {dataSource.growth}</span>
+            </div>
+            <Input type="number" value={p.autoGrowth} onChange={e => handleGrowthChange(e.target.value)} step="0.5" className="font-mono h-9" />
+            <p className="text-[10px] text-muted-foreground">g = (1 − Payout) × ROE. Limitado a 0–15%. Editável.</p>
+          </div>
+
           <FieldRow label="Taxa de Desconto (%)" value={p.discount} onChange={v => setP({ ...p, discount: +v })} step="0.5" />
           <FieldRow label="Taxa Perpétua (%)" value={p.perpetuity} onChange={v => setP({ ...p, perpetuity: +v })} step="0.5" />
-          {p.profits.map((profit, i) => (
-            <FieldRow key={i} label={`Lucro Líquido Ano ${i + 1} (R$)`} value={profit}
-              onChange={v => { const np = [...p.profits]; np[i] = +v; setP({ ...p, profits: np }); }} step="1" />
-          ))}
-          <Button className="w-full gap-2 mt-2" onClick={() => save(p.ticker, `vff${years}`, p, fv, fv * 0.75, p.price)} disabled={!p.ticker}><Save className="h-4 w-4" /> Salvar</Button>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">Lucros Projetados</Label>
+              <button
+                type="button"
+                className="text-[10px] text-primary hover:underline"
+                onClick={() => {
+                  const gRate = p.autoGrowth / 100;
+                  const base = p.netIncomeBase;
+                  if (base > 0) {
+                    const projected = Array.from({ length: years }, (_, i) => Math.round(base * Math.pow(1 + gRate, i + 1)));
+                    setP(prev => ({ ...prev, profits: projected, useAutoProjection: true }));
+                  }
+                }}
+              >
+                ↻ Reprojetar
+              </button>
+            </div>
+            {p.profits.map((profit, i) => (
+              <FieldRow key={i} label={`Ano ${i + 1} (R$)`} value={profit}
+                onChange={v => {
+                  const np = [...p.profits]; np[i] = +v;
+                  setP(prev => ({ ...prev, profits: np, useAutoProjection: false }));
+                }} step="1" />
+            ))}
+          </div>
+
+          <Button className="w-full gap-2 mt-2"
+            onClick={() => {
+              if (fv <= 0) { toast.error('Preço justo inválido. Verifique os dados.'); return; }
+              save(p.ticker, `vff${years}`, p, fv, fv * 0.75, p.price);
+            }}
+            disabled={!p.ticker || fv <= 0}>
+            <Save className="h-4 w-4" /> Salvar
+          </Button>
         </CardContent>
       </Card>
       <div className="space-y-6">
@@ -344,10 +469,13 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         <Card>
           <CardHeader><CardTitle className="text-sm">Detalhamento</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-xs font-mono text-muted-foreground">
+            <p>Lucro Base: {formatBRL(p.netIncomeBase)} ({dataSource.netIncome})</p>
+            <p>Crescimento (g): {p.autoGrowth.toFixed(2)}% ({dataSource.growth})</p>
             <p>VPL Lucros: {formatBRL(pvProfits)}</p>
             <p>Valor Terminal: {formatBRL(terminal)}</p>
             <p>VP Terminal: {formatBRL(pvTerminal)}</p>
             <p>Market Cap Proj.: {formatBRL(marketCapProjected)}</p>
+            <p className="pt-1 border-t border-border text-primary font-semibold">Preço Justo: {formatBRL(fv)}</p>
           </CardContent>
         </Card>
       </div>
