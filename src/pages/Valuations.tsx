@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Save, Loader2 } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { formatBRL, formatPct } from '@/lib/format';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
