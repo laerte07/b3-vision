@@ -65,7 +65,7 @@ export default function FundamentalsDrawer({ asset, open, onOpenChange }: Props)
   const badge = coverageBadge(coverage);
 
   const currentYear = new Date().getFullYear();
-  const histYears = [currentYear, currentYear - 1, currentYear - 2];
+  const histYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4, currentYear - 5];
 
   const setDraftField = (key: string, raw: string) => {
     const val = raw === '' ? undefined : Number(raw);

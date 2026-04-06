@@ -46,6 +46,9 @@ export interface PortfolioAsset {
 
   fundamentals: Fundamentals | null;
 
+  /** Raw overrides JSON for valuation access */
+  overrides: Record<string, any>;
+
   /**
    * DY efetivo para usar na UI/score:
    * prioridade: manual override > fundamentals_cache > dividends_cache > null
@@ -176,6 +179,7 @@ export const usePortfolio = () => {
 
           fundamentals,
           effective_dy,
+          overrides: ovJson,
         } as PortfolioAsset;
       });
     },
