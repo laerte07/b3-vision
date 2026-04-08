@@ -167,7 +167,7 @@ const Graham = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Graham</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualLpa(null); setManualVpa(null); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManualLpa(+v)} sourcedValue={manualLpa != null ? { value: manualLpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManualVpa(+v)} sourcedValue={manualVpa != null ? { value: manualVpa, source: 'manual' } : fd?.vpa} />
