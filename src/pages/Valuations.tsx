@@ -56,6 +56,12 @@ const Warnings = ({ items }: { items: string[] }) => {
   );
 };
 
+const EmptyAssetHint = () => (
+  <div className="rounded-lg border border-border bg-muted/50 p-3">
+    <p className="text-xs text-muted-foreground text-center">Selecione um ativo para visualizar o valuation</p>
+  </div>
+);
+
 const ResultCard = ({ fairValue, currentPrice, maxBuyPrice, formula }: {
   fairValue: number; currentPrice: number; maxBuyPrice: number; formula: string;
 }) => {
@@ -161,7 +167,7 @@ const Graham = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Graham</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualLpa(null); setManualVpa(null); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManualLpa(+v)} sourcedValue={manualLpa != null ? { value: manualLpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManualVpa(+v)} sourcedValue={manualVpa != null ? { value: manualVpa, source: 'manual' } : fd?.vpa} />
@@ -195,7 +201,7 @@ const Bazin = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Bazin</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualDiv(null); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Dividendo por Ação (anual)" value={avgDiv} onChange={v => setManualDiv(+v)} sourcedValue={manualDiv != null ? { value: manualDiv, source: 'manual' } : fd?.div_12m} hint="Div/ação últimos 12m" />
           <FieldRow label="DY Mínimo Desejado (%)" value={minDY} onChange={v => setMinDY(+v)} step="0.5" />
@@ -230,7 +236,7 @@ const Buffett = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Buffett</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
           <FieldRow label="Payout (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
@@ -274,7 +280,7 @@ const Lynch = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Lynch (PEG)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="P/L" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} sourcedValue={manuals.pl != null ? { value: manuals.pl, source: 'manual' } : fd?.pe_ratio} />
           <FieldRow label="Taxa de Crescimento (%)" value={growth} onChange={v => setManuals(p => ({ ...p, growth: +v }))} sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : fd?.revenue_growth} />
@@ -342,7 +348,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={allWarnings} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={allWarnings} />}
           <FieldRow label="Preço Atual (R$)" value={fd?.price.value ?? 0} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Total de Ações" value={shares} onChange={() => {}} disabled step="1" sourcedValue={fd?.total_shares} />
 
@@ -434,7 +440,7 @@ const PVPJustificado = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/VP Justificado</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManuals(p => ({ ...p, vpa: +v }))} sourcedValue={manuals.vpa != null ? { value: manuals.vpa, source: 'manual' } : fd?.vpa} />
           <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
@@ -484,7 +490,7 @@ const PLJusto = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/L Justo (Múltiplos)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManuals(p => ({ ...p, lpa: +v }))} sourcedValue={manuals.lpa != null ? { value: manuals.lpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="P/L Justo" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} step="1" />
@@ -518,7 +524,7 @@ const EVEbitda = () => {
         <CardHeader><CardTitle className="text-base">Premissas — EV/EBITDA Justo</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="EBITDA (R$)" value={ebitda} onChange={v => setManuals(p => ({ ...p, ebitda: +v }))} sourcedValue={manuals.ebitda != null ? { value: manuals.ebitda, source: 'manual' } : fd?.ebitda} />
           <FieldRow label="EV/EBITDA Justo" value={multiplo} onChange={v => setManuals(p => ({ ...p, multiplo: +v }))} step="0.5" />
