@@ -348,7 +348,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={allWarnings} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={allWarnings} />}
           <FieldRow label="Preço Atual (R$)" value={fd?.price.value ?? 0} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Total de Ações" value={shares} onChange={() => {}} disabled step="1" sourcedValue={fd?.total_shares} />
 
