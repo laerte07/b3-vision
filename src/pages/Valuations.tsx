@@ -201,7 +201,7 @@ const Bazin = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Bazin</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualDiv(null); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Dividendo por Ação (anual)" value={avgDiv} onChange={v => setManualDiv(+v)} sourcedValue={manualDiv != null ? { value: manualDiv, source: 'manual' } : fd?.div_12m} hint="Div/ação últimos 12m" />
           <FieldRow label="DY Mínimo Desejado (%)" value={minDY} onChange={v => setMinDY(+v)} step="0.5" />
