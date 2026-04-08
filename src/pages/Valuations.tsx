@@ -56,6 +56,12 @@ const Warnings = ({ items }: { items: string[] }) => {
   );
 };
 
+const EmptyAssetHint = () => (
+  <div className="rounded-lg border border-border bg-muted/50 p-3">
+    <p className="text-xs text-muted-foreground text-center">Selecione um ativo para visualizar o valuation</p>
+  </div>
+);
+
 const ResultCard = ({ fairValue, currentPrice, maxBuyPrice, formula }: {
   fairValue: number; currentPrice: number; maxBuyPrice: number; formula: string;
 }) => {
