@@ -280,7 +280,7 @@ const Lynch = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Lynch (PEG)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="P/L" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} sourcedValue={manuals.pl != null ? { value: manuals.pl, source: 'manual' } : fd?.pe_ratio} />
           <FieldRow label="Taxa de Crescimento (%)" value={growth} onChange={v => setManuals(p => ({ ...p, growth: +v }))} sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : fd?.revenue_growth} />
