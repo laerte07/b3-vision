@@ -490,7 +490,7 @@ const PLJusto = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/L Justo (Múltiplos)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManuals(p => ({ ...p, lpa: +v }))} sourcedValue={manuals.lpa != null ? { value: manuals.lpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="P/L Justo" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} step="1" />
