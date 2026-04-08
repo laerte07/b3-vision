@@ -440,7 +440,7 @@ const PVPJustificado = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/VP Justificado</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManuals(p => ({ ...p, vpa: +v }))} sourcedValue={manuals.vpa != null ? { value: manuals.vpa, source: 'manual' } : fd?.vpa} />
           <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
