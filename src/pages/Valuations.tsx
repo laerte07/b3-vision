@@ -524,7 +524,7 @@ const EVEbitda = () => {
         <CardHeader><CardTitle className="text-base">Premissas — EV/EBITDA Justo</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />
+          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="EBITDA (R$)" value={ebitda} onChange={v => setManuals(p => ({ ...p, ebitda: +v }))} sourcedValue={manuals.ebitda != null ? { value: manuals.ebitda, source: 'manual' } : fd?.ebitda} />
           <FieldRow label="EV/EBITDA Justo" value={multiplo} onChange={v => setManuals(p => ({ ...p, multiplo: +v }))} step="0.5" />
