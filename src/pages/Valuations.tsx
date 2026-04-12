@@ -196,14 +196,20 @@ const AssetSelector = ({ value, onChange }: { value: string; onChange: (v: strin
   );
 };
 
-/** Hook: find asset and build FinancialData */
-const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; fd: FinancialData | null } => {
-  const { data: portfolio = [] } = usePortfolio();
+/** Hook: find asset and build FinancialData with status */
+const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; fd: FinancialData | null; status: DataStatus } => {
+  const { data: portfolio = [], isLoading } = usePortfolio();
   return useMemo(() => {
+    if (!ticker) return { asset: undefined, fd: null, status: 'idle' as DataStatus };
+    if (isLoading) return { asset: undefined, fd: null, status: 'loading' as DataStatus };
     const asset = portfolio.find(a => a.ticker === ticker);
-    if (!asset) return { asset: undefined, fd: null };
-    return { asset, fd: buildFinancialData(asset) };
-  }, [portfolio, ticker]);
+    if (!asset) return { asset: undefined, fd: null, status: 'error' as DataStatus };
+    const fd = buildFinancialData(asset);
+    // Determine status based on warnings and data quality
+    const hasNd = [fd.lpa, fd.vpa, fd.price, fd.roe, fd.total_shares].some(sv => sv.source === 'nd');
+    const status: DataStatus = hasNd ? 'partial' : 'success';
+    return { asset, fd, status };
+  }, [portfolio, ticker, isLoading]);
 };
 
 // ===================== GRAHAM =====================
