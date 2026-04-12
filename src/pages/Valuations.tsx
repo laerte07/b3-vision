@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, AlertTriangle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Save, AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react';
 import { formatBRL, formatPct } from '@/lib/format';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
@@ -30,6 +31,8 @@ import {
 } from '@/lib/financial-engine';
 
 const ACOES_SLUG = 'acoes';
+
+type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
 
 // ---- Shared components ----
 
@@ -57,10 +60,67 @@ const Warnings = ({ items }: { items: string[] }) => {
 };
 
 const EmptyAssetHint = () => (
-  <div className="rounded-lg border border-border bg-muted/50 p-3">
-    <p className="text-xs text-muted-foreground text-center">Selecione um ativo para visualizar o valuation</p>
+  <div className="rounded-lg border border-border bg-muted/50 p-6 flex flex-col items-center gap-2">
+    <Info className="h-5 w-5 text-muted-foreground" />
+    <p className="text-sm text-muted-foreground text-center">Selecione um ativo para calcular o valuation</p>
   </div>
 );
+
+const LoadingSkeleton = () => (
+  <div className="space-y-3 animate-fade-in">
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center gap-2">
+      <Loader2 className="h-4 w-4 text-primary animate-spin" />
+      <p className="text-xs text-primary">Buscando dados fundamentalistas...</p>
+    </div>
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+  </div>
+);
+
+const SuccessBanner = () => (
+  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 flex items-center gap-2">
+    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+    <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Dados preenchidos automaticamente</p>
+  </div>
+);
+
+const PartialBanner = () => (
+  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2.5 flex items-center justify-between gap-2">
+    <div className="flex items-center gap-2">
+      <Info className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+      <p className="text-[11px] text-yellow-600 dark:text-yellow-400">Alguns dados não foram encontrados — você pode editar manualmente</p>
+    </div>
+  </div>
+);
+
+const ErrorBanner = () => (
+  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 flex flex-col items-center gap-2">
+    <AlertTriangle className="h-4 w-4 text-red-500" />
+    <p className="text-xs text-red-500 text-center">Não foi possível carregar os fundamentos deste ativo</p>
+    <p className="text-[10px] text-muted-foreground">Preencha os campos manualmente abaixo</p>
+  </div>
+);
+
+/** Renders the appropriate status banner */
+const StatusBanner = ({ status, warnings }: { status: DataStatus; warnings: string[] }) => {
+  if (status === 'loading') return <LoadingSkeleton />;
+  if (status === 'error') return <ErrorBanner />;
+  if (status === 'partial') return (
+    <>
+      <PartialBanner />
+      <Warnings items={warnings} />
+    </>
+  );
+  if (status === 'success') return (
+    <>
+      <SuccessBanner />
+      {warnings.length > 0 && <Warnings items={warnings} />}
+    </>
+  );
+  return null;
+};
 
 const ResultCard = ({ fairValue, currentPrice, maxBuyPrice, formula }: {
   fairValue: number; currentPrice: number; maxBuyPrice: number; formula: string;
@@ -136,14 +196,20 @@ const AssetSelector = ({ value, onChange }: { value: string; onChange: (v: strin
   );
 };
 
-/** Hook: find asset and build FinancialData */
-const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; fd: FinancialData | null } => {
-  const { data: portfolio = [] } = usePortfolio();
+/** Hook: find asset and build FinancialData with status */
+const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; fd: FinancialData | null; status: DataStatus } => {
+  const { data: portfolio = [], isLoading } = usePortfolio();
   return useMemo(() => {
+    if (!ticker) return { asset: undefined, fd: null, status: 'idle' as DataStatus };
+    if (isLoading) return { asset: undefined, fd: null, status: 'loading' as DataStatus };
     const asset = portfolio.find(a => a.ticker === ticker);
-    if (!asset) return { asset: undefined, fd: null };
-    return { asset, fd: buildFinancialData(asset) };
-  }, [portfolio, ticker]);
+    if (!asset) return { asset: undefined, fd: null, status: 'error' as DataStatus };
+    const fd = buildFinancialData(asset);
+    // Determine status based on warnings and data quality
+    const hasNd = [fd.lpa, fd.vpa, fd.price, fd.roe, fd.total_shares].some(sv => sv.source === 'nd');
+    const status: DataStatus = hasNd ? 'partial' : 'success';
+    return { asset, fd, status };
+  }, [portfolio, ticker, isLoading]);
 };
 
 // ===================== GRAHAM =====================
@@ -151,7 +217,7 @@ const Graham = () => {
   const [ticker, setTicker] = useState('');
   const [manualLpa, setManualLpa] = useState<number | null>(null);
   const [manualVpa, setManualVpa] = useState<number | null>(null);
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const lpa = manualLpa ?? fd?.lpa.value ?? 0;
@@ -167,7 +233,7 @@ const Graham = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Graham</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualLpa(null); setManualVpa(null); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManualLpa(+v)} sourcedValue={manualLpa != null ? { value: manualLpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManualVpa(+v)} sourcedValue={manualVpa != null ? { value: manualVpa, source: 'manual' } : fd?.vpa} />
@@ -184,7 +250,7 @@ const Bazin = () => {
   const [ticker, setTicker] = useState('');
   const [manualDiv, setManualDiv] = useState<number | null>(null);
   const [minDY, setMinDY] = useState(6);
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   // Div per share from div_12m (already per share in most cases)
@@ -201,7 +267,7 @@ const Bazin = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Bazin</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManualDiv(null); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Dividendo por Ação (anual)" value={avgDiv} onChange={v => setManualDiv(+v)} sourcedValue={manualDiv != null ? { value: manualDiv, source: 'manual' } : fd?.div_12m} hint="Div/ação últimos 12m" />
           <FieldRow label="DY Mínimo Desejado (%)" value={minDY} onChange={v => setMinDY(+v)} step="0.5" />
@@ -218,7 +284,7 @@ const Buffett = () => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ roe?: number; payout?: number; lpa?: number; pl?: number }>({});
   const [years, setYears] = useState(10);
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const roe = manuals.roe ?? fd?.roe.value ?? 0;
@@ -236,7 +302,7 @@ const Buffett = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Buffett</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
           <FieldRow label="Payout (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
@@ -264,7 +330,7 @@ const Buffett = () => {
 const Lynch = () => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ pl?: number; growth?: number }>({});
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const pl = manuals.pl ?? fd?.pe_ratio.value ?? 0;
@@ -280,7 +346,7 @@ const Lynch = () => {
         <CardHeader><CardTitle className="text-base">Premissas — Lynch (PEG)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="P/L" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} sourcedValue={manuals.pl != null ? { value: manuals.pl, source: 'manual' } : fd?.pe_ratio} />
           <FieldRow label="Taxa de Crescimento (%)" value={growth} onChange={v => setManuals(p => ({ ...p, growth: +v }))} sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : fd?.revenue_growth} />
@@ -307,7 +373,7 @@ const Lynch = () => {
 const VFF = ({ years }: { years: 3 | 5 }) => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[] }>({});
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const autoGrowth = fd ? calcGrowthRate(fd.roe.value, fd.payout.value) : { g: 0, source: 'nd' as const };
@@ -348,7 +414,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={allWarnings} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={allWarnings} />}
           <FieldRow label="Preço Atual (R$)" value={fd?.price.value ?? 0} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="Total de Ações" value={shares} onChange={() => {}} disabled step="1" sourcedValue={fd?.total_shares} />
 
@@ -420,7 +486,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
 const PVPJustificado = () => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ vpa?: number; roe?: number; discount?: number; growth?: number }>({});
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const vpa = manuals.vpa ?? fd?.vpa.value ?? 0;
@@ -440,7 +506,7 @@ const PVPJustificado = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/VP Justificado</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="VPA" value={vpa} onChange={v => setManuals(p => ({ ...p, vpa: +v }))} sourcedValue={manuals.vpa != null ? { value: manuals.vpa, source: 'manual' } : fd?.vpa} />
           <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
@@ -474,7 +540,7 @@ const PVPJustificado = () => {
 const PLJusto = () => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ lpa?: number; pl?: number }>({});
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const lpa = manuals.lpa ?? fd?.lpa.value ?? 0;
@@ -490,7 +556,7 @@ const PLJusto = () => {
         <CardHeader><CardTitle className="text-base">Premissas — P/L Justo (Múltiplos)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="LPA" value={lpa} onChange={v => setManuals(p => ({ ...p, lpa: +v }))} sourcedValue={manuals.lpa != null ? { value: manuals.lpa, source: 'manual' } : fd?.lpa} />
           <FieldRow label="P/L Justo" value={pl} onChange={v => setManuals(p => ({ ...p, pl: +v }))} step="1" />
@@ -506,7 +572,7 @@ const PLJusto = () => {
 const EVEbitda = () => {
   const [ticker, setTicker] = useState('');
   const [manuals, setManuals] = useState<{ ebitda?: number; multiplo?: number; netDebt?: number; shares?: number }>({});
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const ebitda = manuals.ebitda ?? fd?.ebitda.value ?? 0;
@@ -524,7 +590,7 @@ const EVEbitda = () => {
         <CardHeader><CardTitle className="text-base">Premissas — EV/EBITDA Justo</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {!ticker ? <EmptyAssetHint /> : <Warnings items={[...(fd?.warnings ?? []), ...warnings]} />}
+          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={[...(fd?.warnings ?? []), ...warnings]} />}
           <FieldRow label="Preço Atual (R$)" value={price} onChange={() => {}} disabled sourcedValue={fd?.price} />
           <FieldRow label="EBITDA (R$)" value={ebitda} onChange={v => setManuals(p => ({ ...p, ebitda: +v }))} sourcedValue={manuals.ebitda != null ? { value: manuals.ebitda, source: 'manual' } : fd?.ebitda} />
           <FieldRow label="EV/EBITDA Justo" value={multiplo} onChange={v => setManuals(p => ({ ...p, multiplo: +v }))} step="0.5" />
