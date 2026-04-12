@@ -217,7 +217,7 @@ const Graham = () => {
   const [ticker, setTicker] = useState('');
   const [manualLpa, setManualLpa] = useState<number | null>(null);
   const [manualVpa, setManualVpa] = useState<number | null>(null);
-  const { fd } = useFinancialData(ticker);
+  const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   const lpa = manualLpa ?? fd?.lpa.value ?? 0;
