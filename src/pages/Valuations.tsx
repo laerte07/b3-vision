@@ -86,7 +86,7 @@ const SuccessBanner = () => (
   </div>
 );
 
-const PartialBanner = ({ onManual }: { onManual?: () => void }) => (
+const PartialBanner = ({ _onManual }: { _onManual?: () => void }) => (
   <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2.5 flex items-center justify-between gap-2">
     <div className="flex items-center gap-2">
       <Info className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
