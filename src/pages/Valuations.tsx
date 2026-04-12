@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, AlertTriangle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Save, AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react';
 import { formatBRL, formatPct } from '@/lib/format';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
@@ -30,6 +31,8 @@ import {
 } from '@/lib/financial-engine';
 
 const ACOES_SLUG = 'acoes';
+
+type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
 
 // ---- Shared components ----
 
@@ -57,10 +60,67 @@ const Warnings = ({ items }: { items: string[] }) => {
 };
 
 const EmptyAssetHint = () => (
-  <div className="rounded-lg border border-border bg-muted/50 p-3">
-    <p className="text-xs text-muted-foreground text-center">Selecione um ativo para visualizar o valuation</p>
+  <div className="rounded-lg border border-border bg-muted/50 p-6 flex flex-col items-center gap-2">
+    <Info className="h-5 w-5 text-muted-foreground" />
+    <p className="text-sm text-muted-foreground text-center">Selecione um ativo para calcular o valuation</p>
   </div>
 );
+
+const LoadingSkeleton = () => (
+  <div className="space-y-3 animate-fade-in">
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center gap-2">
+      <Loader2 className="h-4 w-4 text-primary animate-spin" />
+      <p className="text-xs text-primary">Buscando dados fundamentalistas...</p>
+    </div>
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+    <Skeleton className="h-9 w-full" />
+  </div>
+);
+
+const SuccessBanner = () => (
+  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 flex items-center gap-2">
+    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+    <p className="text-[11px] text-emerald-600 dark:text-emerald-400">Dados preenchidos automaticamente</p>
+  </div>
+);
+
+const PartialBanner = ({ onManual }: { onManual?: () => void }) => (
+  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-2.5 flex items-center justify-between gap-2">
+    <div className="flex items-center gap-2">
+      <Info className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+      <p className="text-[11px] text-yellow-600 dark:text-yellow-400">Alguns dados não foram encontrados — você pode editar manualmente</p>
+    </div>
+  </div>
+);
+
+const ErrorBanner = () => (
+  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 flex flex-col items-center gap-2">
+    <AlertTriangle className="h-4 w-4 text-red-500" />
+    <p className="text-xs text-red-500 text-center">Não foi possível carregar os fundamentos deste ativo</p>
+    <p className="text-[10px] text-muted-foreground">Preencha os campos manualmente abaixo</p>
+  </div>
+);
+
+/** Renders the appropriate status banner */
+const StatusBanner = ({ status, warnings }: { status: DataStatus; warnings: string[] }) => {
+  if (status === 'loading') return <LoadingSkeleton />;
+  if (status === 'error') return <ErrorBanner />;
+  if (status === 'partial') return (
+    <>
+      <PartialBanner />
+      <Warnings items={warnings} />
+    </>
+  );
+  if (status === 'success') return (
+    <>
+      <SuccessBanner />
+      {warnings.length > 0 && <Warnings items={warnings} />}
+    </>
+  );
+  return null;
+};
 
 const ResultCard = ({ fairValue, currentPrice, maxBuyPrice, formula }: {
   fairValue: number; currentPrice: number; maxBuyPrice: number; formula: string;
