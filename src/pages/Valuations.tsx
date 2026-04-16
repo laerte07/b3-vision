@@ -640,35 +640,62 @@ const EVEbitda = () => {
 };
 
 // ===================== MAIN PAGE =====================
-const Valuations = () => (
-  <div className="space-y-6 animate-fade-in">
-    <div>
-      <p className="kpi-label mb-1">Valor Intrínseco</p>
-      <h1 className="text-xl font-semibold tracking-tight">Valuations</h1>
+const Valuations = () => {
+  const [tab, setTab] = useState<string>('graham');
+  const [tabKey, setTabKey] = useState(0); // remount on prefill
+  const [modalOpen, setModalOpen] = useState(false);
+  const { data: saved = [] } = useSavedValuations();
+
+  const handleOpenSaved = (modelTabKey: string, ticker: string) => {
+    writePrefill(modelTabKey, ticker);
+    setTab(modelTabKey);
+    setTabKey(k => k + 1);
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="kpi-label mb-1">Valor Intrínseco</p>
+          <h1 className="text-xl font-semibold tracking-tight">Valuations</h1>
+        </div>
+        <Button variant="outline" onClick={() => setModalOpen(true)} className="gap-2">
+          <BarChart3 className="h-4 w-4" />
+          Meus Valuations
+          {saved.length > 0 && (
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5">{saved.length}</Badge>
+          )}
+        </Button>
+      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
+          <TabsTrigger value="vff3">VFF 3a</TabsTrigger>
+          <TabsTrigger value="vff5">VFF 5a</TabsTrigger>
+          <TabsTrigger value="graham">Graham</TabsTrigger>
+          <TabsTrigger value="buffett">Buffett</TabsTrigger>
+          <TabsTrigger value="bazin">Bazin</TabsTrigger>
+          <TabsTrigger value="lynch">Lynch</TabsTrigger>
+          <TabsTrigger value="pvp">P/VP Just.</TabsTrigger>
+          <TabsTrigger value="pl">P/L Justo</TabsTrigger>
+          <TabsTrigger value="evebitda">EV/EBITDA</TabsTrigger>
+        </TabsList>
+        <TabsContent value="vff3"><VFF key={`vff3-${tabKey}`} years={3} /></TabsContent>
+        <TabsContent value="vff5"><VFF key={`vff5-${tabKey}`} years={5} /></TabsContent>
+        <TabsContent value="graham"><Graham key={`graham-${tabKey}`} /></TabsContent>
+        <TabsContent value="buffett"><Buffett key={`buffett-${tabKey}`} /></TabsContent>
+        <TabsContent value="bazin"><Bazin key={`bazin-${tabKey}`} /></TabsContent>
+        <TabsContent value="lynch"><Lynch key={`lynch-${tabKey}`} /></TabsContent>
+        <TabsContent value="pvp"><PVPJustificado key={`pvp-${tabKey}`} /></TabsContent>
+        <TabsContent value="pl"><PLJusto key={`pl-${tabKey}`} /></TabsContent>
+        <TabsContent value="evebitda"><EVEbitda key={`evebitda-${tabKey}`} /></TabsContent>
+      </Tabs>
+      <SavedValuationsModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onOpenValuation={handleOpenSaved}
+      />
     </div>
-    <Tabs defaultValue="graham">
-      <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
-        <TabsTrigger value="vff3">VFF 3a</TabsTrigger>
-        <TabsTrigger value="vff5">VFF 5a</TabsTrigger>
-        <TabsTrigger value="graham">Graham</TabsTrigger>
-        <TabsTrigger value="buffett">Buffett</TabsTrigger>
-        <TabsTrigger value="bazin">Bazin</TabsTrigger>
-        <TabsTrigger value="lynch">Lynch</TabsTrigger>
-        <TabsTrigger value="pvp">P/VP Just.</TabsTrigger>
-        <TabsTrigger value="pl">P/L Justo</TabsTrigger>
-        <TabsTrigger value="evebitda">EV/EBITDA</TabsTrigger>
-      </TabsList>
-      <TabsContent value="vff3"><VFF years={3} /></TabsContent>
-      <TabsContent value="vff5"><VFF years={5} /></TabsContent>
-      <TabsContent value="graham"><Graham /></TabsContent>
-      <TabsContent value="buffett"><Buffett /></TabsContent>
-      <TabsContent value="bazin"><Bazin /></TabsContent>
-      <TabsContent value="lynch"><Lynch /></TabsContent>
-      <TabsContent value="pvp"><PVPJustificado /></TabsContent>
-      <TabsContent value="pl"><PLJusto /></TabsContent>
-      <TabsContent value="evebitda"><EVEbitda /></TabsContent>
-    </Tabs>
-  </div>
-);
+  );
+};
 
 export default Valuations;
