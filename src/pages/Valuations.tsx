@@ -36,6 +36,30 @@ const ACOES_SLUG = 'acoes';
 
 type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
 
+// ---- Prefill helper: lets SavedValuationsModal pre-select a ticker per tab ----
+const PREFILL_KEY = 'valuation_prefill_v1';
+const readPrefill = (tab: string): string => {
+  try {
+    const raw = sessionStorage.getItem(PREFILL_KEY);
+    if (!raw) return '';
+    const obj = JSON.parse(raw) as Record<string, string>;
+    const t = obj[tab] || '';
+    if (t) {
+      delete obj[tab];
+      sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
+    }
+    return t;
+  } catch { return ''; }
+};
+export const writePrefill = (tab: string, ticker: string) => {
+  try {
+    const raw = sessionStorage.getItem(PREFILL_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[tab] = ticker;
+    sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+};
+
 // ---- Shared components ----
 
 const SourceBadge = ({ sv }: { sv: SourcedValue }) => {
