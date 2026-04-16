@@ -11,7 +11,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox, GitCompare, Trophy, Sparkles } from 'lucide-react';
+import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox, GitCompare } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatBRL, formatPct } from '@/lib/format';
 import {
