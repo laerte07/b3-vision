@@ -240,7 +240,7 @@ const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; 
 
 // ===================== GRAHAM =====================
 const Graham = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('graham'));
   const [manualLpa, setManualLpa] = useState<number | null>(null);
   const [manualVpa, setManualVpa] = useState<number | null>(null);
   const { fd, status } = useFinancialData(ticker);
@@ -273,7 +273,7 @@ const Graham = () => {
 
 // ===================== BAZIN =====================
 const Bazin = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('bazin'));
   const [manualDiv, setManualDiv] = useState<number | null>(null);
   const [minDY, setMinDY] = useState(6);
   const { fd, status } = useFinancialData(ticker);
@@ -307,7 +307,7 @@ const Bazin = () => {
 
 // ===================== BUFFETT =====================
 const Buffett = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('buffett'));
   const [manuals, setManuals] = useState<{ roe?: number; payout?: number; lpa?: number; pl?: number }>({});
   const [years, setYears] = useState(10);
   const { fd, status } = useFinancialData(ticker);
@@ -354,7 +354,7 @@ const Buffett = () => {
 
 // ===================== LYNCH =====================
 const Lynch = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('lynch'));
   const [manuals, setManuals] = useState<{ pl?: number; growth?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -397,7 +397,7 @@ const Lynch = () => {
 
 // ===================== VFF (DCF) =====================
 const VFF = ({ years }: { years: 3 | 5 }) => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill(years === 3 ? 'vff3' : 'vff5'));
   const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[] }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -510,7 +510,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
 
 // ===================== P/VP JUSTIFICADO =====================
 const PVPJustificado = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('pvp'));
   const [manuals, setManuals] = useState<{ vpa?: number; roe?: number; discount?: number; growth?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -564,7 +564,7 @@ const PVPJustificado = () => {
 
 // ===================== P/L JUSTO =====================
 const PLJusto = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('pl'));
   const [manuals, setManuals] = useState<{ lpa?: number; pl?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -596,7 +596,7 @@ const PLJusto = () => {
 
 // ===================== EV/EBITDA JUSTO =====================
 const EVEbitda = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('evebitda'));
   const [manuals, setManuals] = useState<{ ebitda?: number; multiplo?: number; netDebt?: number; shares?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
