@@ -11,12 +11,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox } from 'lucide-react';
+import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox, GitCompare, Trophy, Sparkles } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatBRL, formatPct } from '@/lib/format';
 import {
   useSavedValuations, useDeleteSavedValuation,
   MODEL_LABELS, MODEL_TAB_KEYS, type SavedValuation,
 } from '@/hooks/useSavedValuations';
+import { buildConsensus, scoreClassification, type ConsensusRow } from '@/lib/valuation-consensus';
 
 interface Props {
   open: boolean;
@@ -169,10 +171,22 @@ const EmptyState = ({ msg }: { msg: string }) => (
 export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Props) => {
   const { data: valuations = [], isLoading } = useSavedValuations();
   const deleteMut = useDeleteSavedValuation();
+  const [view, setView] = useState<'list' | 'compare'>('list');
   const [activeTab, setActiveTab] = useState<string>('graham');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [sort, setSort] = useState<SortMode>('recent');
+
+  const consensus = useMemo(() => buildConsensus(valuations, MODEL_KEYS), [valuations]);
+  const filteredConsensus = useMemo(() => {
+    let list = consensus;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(c => c.ticker.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [consensus, search]);
+  const topScore = filteredConsensus[0]?.score ?? -1;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
