@@ -7,7 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Save, AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react';
+import { Save, AlertTriangle, CheckCircle2, Info, Loader2, BarChart3 } from 'lucide-react';
+import { SavedValuationsModal } from '@/components/SavedValuationsModal';
+import { useSavedValuations } from '@/hooks/useSavedValuations';
 import { formatBRL, formatPct } from '@/lib/format';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
@@ -33,6 +35,30 @@ import {
 const ACOES_SLUG = 'acoes';
 
 type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
+
+// ---- Prefill helper: lets SavedValuationsModal pre-select a ticker per tab ----
+const PREFILL_KEY = 'valuation_prefill_v1';
+const readPrefill = (tab: string): string => {
+  try {
+    const raw = sessionStorage.getItem(PREFILL_KEY);
+    if (!raw) return '';
+    const obj = JSON.parse(raw) as Record<string, string>;
+    const t = obj[tab] || '';
+    if (t) {
+      delete obj[tab];
+      sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
+    }
+    return t;
+  } catch { return ''; }
+};
+export const writePrefill = (tab: string, ticker: string) => {
+  try {
+    const raw = sessionStorage.getItem(PREFILL_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[tab] = ticker;
+    sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+};
 
 // ---- Shared components ----
 
@@ -214,7 +240,7 @@ const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; 
 
 // ===================== GRAHAM =====================
 const Graham = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('graham'));
   const [manualLpa, setManualLpa] = useState<number | null>(null);
   const [manualVpa, setManualVpa] = useState<number | null>(null);
   const { fd, status } = useFinancialData(ticker);
@@ -247,7 +273,7 @@ const Graham = () => {
 
 // ===================== BAZIN =====================
 const Bazin = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('bazin'));
   const [manualDiv, setManualDiv] = useState<number | null>(null);
   const [minDY, setMinDY] = useState(6);
   const { fd, status } = useFinancialData(ticker);
@@ -281,7 +307,7 @@ const Bazin = () => {
 
 // ===================== BUFFETT =====================
 const Buffett = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('buffett'));
   const [manuals, setManuals] = useState<{ roe?: number; payout?: number; lpa?: number; pl?: number }>({});
   const [years, setYears] = useState(10);
   const { fd, status } = useFinancialData(ticker);
@@ -328,7 +354,7 @@ const Buffett = () => {
 
 // ===================== LYNCH =====================
 const Lynch = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('lynch'));
   const [manuals, setManuals] = useState<{ pl?: number; growth?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -371,7 +397,7 @@ const Lynch = () => {
 
 // ===================== VFF (DCF) =====================
 const VFF = ({ years }: { years: 3 | 5 }) => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill(years === 3 ? 'vff3' : 'vff5'));
   const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[] }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -484,7 +510,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
 
 // ===================== P/VP JUSTIFICADO =====================
 const PVPJustificado = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('pvp'));
   const [manuals, setManuals] = useState<{ vpa?: number; roe?: number; discount?: number; growth?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -538,7 +564,7 @@ const PVPJustificado = () => {
 
 // ===================== P/L JUSTO =====================
 const PLJusto = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('pl'));
   const [manuals, setManuals] = useState<{ lpa?: number; pl?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -570,7 +596,7 @@ const PLJusto = () => {
 
 // ===================== EV/EBITDA JUSTO =====================
 const EVEbitda = () => {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => readPrefill('evebitda'));
   const [manuals, setManuals] = useState<{ ebitda?: number; multiplo?: number; netDebt?: number; shares?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -614,35 +640,62 @@ const EVEbitda = () => {
 };
 
 // ===================== MAIN PAGE =====================
-const Valuations = () => (
-  <div className="space-y-6 animate-fade-in">
-    <div>
-      <p className="kpi-label mb-1">Valor Intrínseco</p>
-      <h1 className="text-xl font-semibold tracking-tight">Valuations</h1>
+const Valuations = () => {
+  const [tab, setTab] = useState<string>('graham');
+  const [tabKey, setTabKey] = useState(0); // remount on prefill
+  const [modalOpen, setModalOpen] = useState(false);
+  const { data: saved = [] } = useSavedValuations();
+
+  const handleOpenSaved = (modelTabKey: string, ticker: string) => {
+    writePrefill(modelTabKey, ticker);
+    setTab(modelTabKey);
+    setTabKey(k => k + 1);
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="kpi-label mb-1">Valor Intrínseco</p>
+          <h1 className="text-xl font-semibold tracking-tight">Valuations</h1>
+        </div>
+        <Button variant="outline" onClick={() => setModalOpen(true)} className="gap-2">
+          <BarChart3 className="h-4 w-4" />
+          Meus Valuations
+          {saved.length > 0 && (
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5">{saved.length}</Badge>
+          )}
+        </Button>
+      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
+          <TabsTrigger value="vff3">VFF 3a</TabsTrigger>
+          <TabsTrigger value="vff5">VFF 5a</TabsTrigger>
+          <TabsTrigger value="graham">Graham</TabsTrigger>
+          <TabsTrigger value="buffett">Buffett</TabsTrigger>
+          <TabsTrigger value="bazin">Bazin</TabsTrigger>
+          <TabsTrigger value="lynch">Lynch</TabsTrigger>
+          <TabsTrigger value="pvp">P/VP Just.</TabsTrigger>
+          <TabsTrigger value="pl">P/L Justo</TabsTrigger>
+          <TabsTrigger value="evebitda">EV/EBITDA</TabsTrigger>
+        </TabsList>
+        <TabsContent value="vff3"><VFF key={`vff3-${tabKey}`} years={3} /></TabsContent>
+        <TabsContent value="vff5"><VFF key={`vff5-${tabKey}`} years={5} /></TabsContent>
+        <TabsContent value="graham"><Graham key={`graham-${tabKey}`} /></TabsContent>
+        <TabsContent value="buffett"><Buffett key={`buffett-${tabKey}`} /></TabsContent>
+        <TabsContent value="bazin"><Bazin key={`bazin-${tabKey}`} /></TabsContent>
+        <TabsContent value="lynch"><Lynch key={`lynch-${tabKey}`} /></TabsContent>
+        <TabsContent value="pvp"><PVPJustificado key={`pvp-${tabKey}`} /></TabsContent>
+        <TabsContent value="pl"><PLJusto key={`pl-${tabKey}`} /></TabsContent>
+        <TabsContent value="evebitda"><EVEbitda key={`evebitda-${tabKey}`} /></TabsContent>
+      </Tabs>
+      <SavedValuationsModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onOpenValuation={handleOpenSaved}
+      />
     </div>
-    <Tabs defaultValue="graham">
-      <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
-        <TabsTrigger value="vff3">VFF 3a</TabsTrigger>
-        <TabsTrigger value="vff5">VFF 5a</TabsTrigger>
-        <TabsTrigger value="graham">Graham</TabsTrigger>
-        <TabsTrigger value="buffett">Buffett</TabsTrigger>
-        <TabsTrigger value="bazin">Bazin</TabsTrigger>
-        <TabsTrigger value="lynch">Lynch</TabsTrigger>
-        <TabsTrigger value="pvp">P/VP Just.</TabsTrigger>
-        <TabsTrigger value="pl">P/L Justo</TabsTrigger>
-        <TabsTrigger value="evebitda">EV/EBITDA</TabsTrigger>
-      </TabsList>
-      <TabsContent value="vff3"><VFF years={3} /></TabsContent>
-      <TabsContent value="vff5"><VFF years={5} /></TabsContent>
-      <TabsContent value="graham"><Graham /></TabsContent>
-      <TabsContent value="buffett"><Buffett /></TabsContent>
-      <TabsContent value="bazin"><Bazin /></TabsContent>
-      <TabsContent value="lynch"><Lynch /></TabsContent>
-      <TabsContent value="pvp"><PVPJustificado /></TabsContent>
-      <TabsContent value="pl"><PLJusto /></TabsContent>
-      <TabsContent value="evebitda"><EVEbitda /></TabsContent>
-    </Tabs>
-  </div>
-);
+  );
+};
 
 export default Valuations;
