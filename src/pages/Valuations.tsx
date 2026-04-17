@@ -398,7 +398,7 @@ const Lynch = () => {
 // ===================== VFF (DCF) =====================
 const VFF = ({ years }: { years: 3 | 5 }) => {
   const [ticker, setTicker] = useState(() => readPrefill(years === 3 ? 'vff3' : 'vff5'));
-  const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[] }>({});
+  const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[]; shares?: number }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
@@ -407,7 +407,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const growth = manuals.growth ?? autoGrowth.g;
   const discount = manuals.discount ?? 15;
   const perpetuity = manuals.perpetuity ?? 3;
-  const shares = fd?.total_shares.value ?? 0;
+  const shares = manuals.shares ?? fd?.total_shares.value ?? 0;
 
   const autoResult = calcVFF(netIncome, growth, discount, perpetuity, shares, years);
   const profits = manuals.profits ?? autoResult.profits;
@@ -442,7 +442,14 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
           {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={allWarnings} />}
           <FieldRow label="Preço Atual (R$)" value={fd?.price.value ?? 0} onChange={() => {}} disabled sourcedValue={fd?.price} />
-          <FieldRow label="Total de Ações" value={shares} onChange={() => {}} disabled step="1" sourcedValue={fd?.total_shares} />
+          <FieldRow
+            label="Total de Ações"
+            value={shares}
+            onChange={v => setManuals(p => ({ ...p, shares: +v }))}
+            step="1"
+            sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
+            hint="Ajuste manualmente se a API não trouxer este valor"
+          />
 
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -484,8 +491,22 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           </div>
 
           <Button className="w-full gap-2 mt-2" onClick={() => {
-            if (fv <= 0) { toast.error('Preço justo inválido.'); return; }
-            save(ticker, `vff${years}`, { netIncome, growth, discount, perpetuity, profits, shares }, fv, fv * 0.75, fd?.price.value ?? 0);
+            if (!ticker) { toast.error('Selecione um ativo.'); return; }
+            if (fv <= 0) {
+              toast.error('Preço justo inválido — preencha Lucro Base e Total de Ações para calcular.');
+              return;
+            }
+            const origem = manuals.netIncome != null || manuals.shares != null ? 'manual' : 'fundamentos';
+            const incomplete = (fd?.net_income.source === 'nd') || (fd?.total_shares.source === 'nd');
+            save(
+              ticker,
+              `vff${years}`,
+              { netIncome, growth, discount, perpetuity, profits, shares, origem_dados: origem },
+              fv,
+              fv * 0.75,
+              fd?.price.value ?? 0,
+            );
+            if (incomplete) toast.warning('Dados incompletos — valuation baseado em input manual');
           }} disabled={!ticker || fv <= 0}><Save className="h-4 w-4" /> Salvar</Button>
         </CardContent>
       </Card>

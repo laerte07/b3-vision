@@ -11,7 +11,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox, GitCompare } from 'lucide-react';
+import { BarChart3, Eye, Trash2, Search, ArrowUpDown, Inbox, GitCompare, Trophy, TrendingUp, Flame } from 'lucide-react';
+// Flame icon used in TopOpportunities
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatBRL, formatPct } from '@/lib/format';
 import {
@@ -367,20 +368,29 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
               </div>
             </div>
             <ScrollArea className="flex-1">
-              <div className="p-4 md:p-6">
+              <div className="p-4 md:p-6 space-y-4">
                 {isLoading ? (
                   <EmptyState msg="Carregando comparativo..." />
                 ) : filteredConsensus.length === 0 ? (
                   <EmptyState msg="Nenhum valuation salvo para comparar" />
                 ) : (
-                  <CompareView
-                    rows={filteredConsensus}
-                    topScore={topScore}
-                    onOpen={(ticker, model) => {
-                      onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
-                      onOpenChange(false);
-                    }}
-                  />
+                  <>
+                    <TopOpportunities
+                      rows={filteredConsensus}
+                      onOpen={(ticker, model) => {
+                        onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
+                        onOpenChange(false);
+                      }}
+                    />
+                    <CompareView
+                      rows={filteredConsensus}
+                      topScore={topScore}
+                      onOpen={(ticker, model) => {
+                        onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
+                        onOpenChange(false);
+                      }}
+                    />
+                  </>
                 )}
               </div>
             </ScrollArea>
@@ -432,7 +442,8 @@ const CompareView = ({ rows, topScore, onOpen }: {
                   {MODEL_LABELS[k]}
                 </TableHead>
               ))}
-              <TableHead>Melhor</TableHead>
+              <TableHead className="text-right">Upside médio</TableHead>
+              <TableHead>Melhor método</TableHead>
               <TableHead className="text-right">Score</TableHead>
             </TableRow>
           </TableHeader>
@@ -442,11 +453,14 @@ const CompareView = ({ rows, topScore, onOpen }: {
               return (
                 <TableRow
                   key={r.ticker}
-                  className={`cursor-pointer hover:bg-muted/40 ${isTop ? 'bg-primary/5 ring-1 ring-primary/30' : ''}`}
+                  className={`cursor-pointer hover:bg-muted/40 transition-shadow ${isTop ? 'bg-primary/5 ring-1 ring-primary/40 shadow-[0_0_18px_-6px_hsl(var(--primary)/0.5)]' : ''}`}
                   onClick={() => r.bestModel && onOpen(r.ticker, r.bestModel)}
                 >
                   <TableCell className="sticky left-0 bg-card font-mono font-semibold">
-                    <div>{r.ticker}</div>
+                    <div className="flex items-center gap-1">
+                      {isTop && <Trophy className="h-3.5 w-3.5 text-primary" />}
+                      {r.ticker}
+                    </div>
                     <div className="text-[10px] text-muted-foreground font-sans truncate max-w-[140px]">{r.name || '—'}</div>
                   </TableCell>
                   <TableCell className="text-right font-mono">
@@ -459,16 +473,28 @@ const CompareView = ({ rows, topScore, onOpen }: {
                     return (
                       <TableCell
                         key={k}
-                        className={`text-right font-mono text-xs ${isBest ? 'text-emerald-600 font-semibold' : ''}`}
+                        className={`text-right font-mono text-xs ${isBest ? 'text-emerald-600 font-bold bg-emerald-500/5' : ''}`}
                       >
                         {fair !== null ? formatBRL(fair) : '—'}
                       </TableCell>
                     );
                   })}
+                  <TableCell className={`text-right font-mono ${(r.avgUpside ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {r.avgUpside !== null ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        {r.avgUpside >= 0 && <TrendingUp className="h-3 w-3" />}
+                        {r.avgUpside >= 0 ? '+' : ''}{formatPct(r.avgUpside)}
+                      </span>
+                    ) : '—'}
+                  </TableCell>
                   <TableCell>
                     {r.bestModel ? (
-                      <Badge className="bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 text-[10px]">
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 text-[10px] gap-1">
+                        <Trophy className="h-2.5 w-2.5" />
                         {MODEL_LABELS[r.bestModel]}
+                        {r.bestUpside !== null && (
+                          <span className="opacity-80">({r.bestUpside >= 0 ? '+' : ''}{formatPct(r.bestUpside)})</span>
+                        )}
                       </Badge>
                     ) : '—'}
                   </TableCell>
@@ -525,5 +551,59 @@ const CompareView = ({ rows, topScore, onOpen }: {
         })}
       </div>
     </>
+  );
+};
+
+const TopOpportunities = ({ rows, onOpen }: {
+  rows: ConsensusRow[];
+  onOpen: (ticker: string, model: string) => void;
+}) => {
+  const top3 = rows.filter(r => r.bestModel && r.score > 0).slice(0, 3);
+  if (top3.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Flame className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Top {top3.length} oportunidades da carteira</h3>
+        <span className="text-[10px] text-muted-foreground">por score consolidado</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {top3.map((r, i) => {
+          const cls = scoreClassification(r.score);
+          return (
+            <button
+              key={r.ticker}
+              onClick={() => r.bestModel && onOpen(r.ticker, r.bestModel)}
+              className="text-left rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors p-3"
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-muted-foreground">#{i + 1}</span>
+                  <span className="font-mono font-semibold text-sm">{r.ticker}</span>
+                </div>
+                <Badge className={`border ${cls.className} text-[10px] font-mono`}>
+                  {r.score} {cls.emoji}
+                </Badge>
+              </div>
+              <div className="text-[10px] text-muted-foreground truncate mb-1.5">{r.name || '—'}</div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Melhor:</span>
+                <span className="font-mono text-emerald-600 font-semibold">
+                  {r.bestModel ? MODEL_LABELS[r.bestModel] : '—'}
+                </span>
+              </div>
+              {r.avgUpside !== null && (
+                <div className="flex items-center justify-between text-[11px] mt-0.5">
+                  <span className="text-muted-foreground">Upside médio:</span>
+                  <span className={`font-mono font-semibold ${r.avgUpside >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {r.avgUpside >= 0 ? '+' : ''}{formatPct(r.avgUpside)}
+                  </span>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 };
