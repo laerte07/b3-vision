@@ -367,20 +367,29 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
               </div>
             </div>
             <ScrollArea className="flex-1">
-              <div className="p-4 md:p-6">
+              <div className="p-4 md:p-6 space-y-4">
                 {isLoading ? (
                   <EmptyState msg="Carregando comparativo..." />
                 ) : filteredConsensus.length === 0 ? (
                   <EmptyState msg="Nenhum valuation salvo para comparar" />
                 ) : (
-                  <CompareView
-                    rows={filteredConsensus}
-                    topScore={topScore}
-                    onOpen={(ticker, model) => {
-                      onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
-                      onOpenChange(false);
-                    }}
-                  />
+                  <>
+                    <TopOpportunities
+                      rows={filteredConsensus}
+                      onOpen={(ticker, model) => {
+                        onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
+                        onOpenChange(false);
+                      }}
+                    />
+                    <CompareView
+                      rows={filteredConsensus}
+                      topScore={topScore}
+                      onOpen={(ticker, model) => {
+                        onOpenValuation?.(MODEL_TAB_KEYS[model] || 'graham', ticker);
+                        onOpenChange(false);
+                      }}
+                    />
+                  </>
                 )}
               </div>
             </ScrollArea>
