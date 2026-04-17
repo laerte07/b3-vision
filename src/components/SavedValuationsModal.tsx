@@ -553,3 +553,57 @@ const CompareView = ({ rows, topScore, onOpen }: {
     </>
   );
 };
+
+const TopOpportunities = ({ rows, onOpen }: {
+  rows: ConsensusRow[];
+  onOpen: (ticker: string, model: string) => void;
+}) => {
+  const top3 = rows.filter(r => r.bestModel && r.score > 0).slice(0, 3);
+  if (top3.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Flame className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Top {top3.length} oportunidades da carteira</h3>
+        <span className="text-[10px] text-muted-foreground">por score consolidado</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {top3.map((r, i) => {
+          const cls = scoreClassification(r.score);
+          return (
+            <button
+              key={r.ticker}
+              onClick={() => r.bestModel && onOpen(r.ticker, r.bestModel)}
+              className="text-left rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors p-3"
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-muted-foreground">#{i + 1}</span>
+                  <span className="font-mono font-semibold text-sm">{r.ticker}</span>
+                </div>
+                <Badge className={`border ${cls.className} text-[10px] font-mono`}>
+                  {r.score} {cls.emoji}
+                </Badge>
+              </div>
+              <div className="text-[10px] text-muted-foreground truncate mb-1.5">{r.name || '—'}</div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">Melhor:</span>
+                <span className="font-mono text-emerald-600 font-semibold">
+                  {r.bestModel ? MODEL_LABELS[r.bestModel] : '—'}
+                </span>
+              </div>
+              {r.avgUpside !== null && (
+                <div className="flex items-center justify-between text-[11px] mt-0.5">
+                  <span className="text-muted-foreground">Upside médio:</span>
+                  <span className={`font-mono font-semibold ${r.avgUpside >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {r.avgUpside >= 0 ? '+' : ''}{formatPct(r.avgUpside)}
+                  </span>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
