@@ -518,7 +518,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
     const incomplete = (fd?.net_income.source === 'nd') || (fd?.total_shares.source === 'nd');
     save(
       ticker,
-      `vff${periodYears}`,
+      `vff_${periodYears}`,
       {
         payout, roe, growth, discount, perpetuity, shares,
         baseNetIncome,
