@@ -425,10 +425,10 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const [periodYears, setPeriodYears] = useState<3 | 5>(years);
   const [manuals, setManuals] = useState<{
     payout?: number; roe?: number; growth?: number; discount?: number; perpetuity?: number;
-    historicals?: Record<number, number>; projections?: Record<number, number>; growths?: Record<number, number>;
+    historicals?: Record<number, number | null>; projections?: Record<number, number>; growths?: Record<number, number>;
     shares?: number; notes?: string;
   }>({});
-  const { fd, status } = useFinancialData(ticker);
+  const { asset, fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
   // Header KPI values
@@ -446,20 +446,30 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const discount = manuals.discount ?? 15;
   const perpetuity = manuals.perpetuity ?? 3;
 
-  // Years arrays
+  // Years arrays — historical = last 5 completed years; projections start at current year
   const currentYear = new Date().getFullYear();
   const histYears = useMemo(() => Array.from({ length: 5 }, (_, i) => currentYear - 5 + i), [currentYear]);
-  const projYears = useMemo(() => Array.from({ length: periodYears }, (_, i) => currentYear + i + 1), [currentYear, periodYears]);
+  const projYears = useMemo(() => Array.from({ length: periodYears }, (_, i) => currentYear + i), [currentYear, periodYears]);
 
-  // Base net income (most recent — current year approx)
-  const baseNetIncome = manuals.historicals?.[currentYear] ?? fd?.net_income.value ?? 0;
+  // Historical net income from Supabase fundamentals overrides (Histórico tab)
+  const histFromOverrides = (asset?.overrides?.net_income_years ?? {}) as Record<string, number | null>;
 
-  // Historical values: default to base for current year, "—" (0) for previous (user fills)
-  const getHistorical = (y: number) => {
-    if (manuals.historicals?.[y] != null) return manuals.historicals[y];
-    if (y === currentYear) return fd?.net_income.value ?? 0;
-    return 0;
+  // Returns null when no value is available (so the input renders empty, not 0)
+  const getHistorical = (y: number): number | null => {
+    if (manuals.historicals && y in manuals.historicals) return manuals.historicals[y];
+    const raw = histFromOverrides[String(y)];
+    return raw == null ? null : Number(raw);
   };
+
+  // Base for projections = most recent non-null historical year (e.g. 2025 if available)
+  const baseNetIncome = useMemo(() => {
+    for (let i = histYears.length - 1; i >= 0; i--) {
+      const v = getHistorical(histYears[i]);
+      if (v != null && v > 0) return v;
+    }
+    return fd?.net_income.value ?? 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [histYears, manuals.historicals, histFromOverrides, fd?.net_income.value]);
 
   // Projected values: by default base × (1+g)^n with possible per-year growth override
   const projections = useMemo(() => {
@@ -641,16 +651,23 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                     {/* HISTORICAL ROWS */}
                     {histYears.map((y, i) => {
                       const profit = getHistorical(y);
-                      const prev = i > 0 ? getHistorical(histYears[i - 1]) : 0;
-                      const growthYoY = prev > 0 ? ((profit - prev) / prev) * 100 : null;
+                      const prev = i > 0 ? getHistorical(histYears[i - 1]) : null;
+                      const growthYoY = (profit != null && prev != null && prev > 0)
+                        ? ((profit - prev) / prev) * 100
+                        : null;
                       return (
                         <tr key={y} className="border-b border-border/40 bg-muted/20 hover:bg-muted/40">
                           <td className="px-4 py-2 font-mono text-muted-foreground">{y}</td>
                           <td className="px-3 py-1.5">
                             <Input
                               type="number"
-                              value={profit}
-                              onChange={e => setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: +e.target.value } }))}
+                              value={profit ?? ''}
+                              placeholder="—"
+                              onChange={e => {
+                                const raw = e.target.value;
+                                const val = raw === '' ? null : +raw;
+                                setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: val } }));
+                              }}
                               className="font-mono h-8 text-right text-xs"
                               step="1"
                             />
