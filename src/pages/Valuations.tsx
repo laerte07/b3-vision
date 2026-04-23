@@ -420,6 +420,52 @@ const GrowthBadge = ({ pct }: { pct: number | null }) => {
   );
 };
 
+// Format a number to pt-BR with thousand separators (no currency, no decimals by default)
+const formatNumberBR = (n: number, decimals = 0) =>
+  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+
+// Parse a pt-BR formatted string back to a number. Returns null for empty.
+const parseNumberBR = (s: string): number | null => {
+  if (s == null) return null;
+  const cleaned = s.replace(/[^\d,-]/g, '').replace(/\./g, '').replace(',', '.');
+  if (cleaned === '' || cleaned === '-') return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+};
+
+// Text input that displays numbers formatted in pt-BR while editing
+const NumberInputBR = ({ value, onChange, placeholder, className, decimals = 0 }: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+  placeholder?: string;
+  className?: string;
+  decimals?: number;
+}) => {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+  const display = focused
+    ? draft
+    : (value == null ? '' : formatNumberBR(value, decimals));
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      placeholder={placeholder}
+      className={className}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(value == null ? '' : formatNumberBR(value, decimals));
+      }}
+      onChange={e => {
+        setDraft(e.target.value);
+        onChange(parseNumberBR(e.target.value));
+      }}
+      onBlur={() => setFocused(false)}
+    />
+  );
+};
+
 const VFF = ({ years }: { years: 3 | 5 }) => {
   const [ticker, setTicker] = useState(() => readPrefill(years === 3 ? 'vff3' : 'vff5'));
   const [periodYears, setPeriodYears] = useState<3 | 5>(years);
@@ -659,17 +705,11 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                         <tr key={y} className="border-b border-border/40 bg-muted/20 hover:bg-muted/40">
                           <td className="px-4 py-2 font-mono text-muted-foreground">{y}</td>
                           <td className="px-3 py-1.5">
-                            <Input
-                              type="number"
-                              value={profit ?? ''}
+                            <NumberInputBR
+                              value={profit}
                               placeholder="—"
-                              onChange={e => {
-                                const raw = e.target.value;
-                                const val = raw === '' ? null : +raw;
-                                setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: val } }));
-                              }}
+                              onChange={val => setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: val } }))}
                               className="font-mono h-8 text-right text-xs"
-                              step="1"
                             />
                           </td>
                           <td className="px-3 py-2 text-center"><GrowthBadge pct={growthYoY} /></td>
@@ -686,12 +726,10 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                         <tr key={p.year} className="border-b border-border/40 bg-primary/[0.04] border-l-2 border-l-primary/40 hover:bg-primary/[0.08]">
                           <td className="px-4 py-2 font-mono font-medium text-primary">{p.year}</td>
                           <td className="px-3 py-1.5">
-                            <Input
-                              type="number"
+                            <NumberInputBR
                               value={Math.round(p.profit)}
-                              onChange={e => setManuals(prev => ({ ...prev, projections: { ...(prev.projections ?? {}), [p.year]: +e.target.value } }))}
+                              onChange={val => setManuals(prev => ({ ...prev, projections: { ...(prev.projections ?? {}), [p.year]: val ?? 0 } }))}
                               className="font-mono h-8 text-right text-xs"
-                              step="1"
                             />
                           </td>
                           <td className="px-3 py-1.5">
@@ -703,14 +741,14 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                               step="0.5"
                             />
                           </td>
-                          <td className="px-4 py-2 text-right font-mono">{vpl > 0 ? formatBRL(vpl) : '—'}</td>
+                          <td className="px-4 py-2 text-right font-mono text-xs whitespace-nowrap">{vpl > 0 ? formatBRL(vpl) : '—'}</td>
                         </tr>
                       );
                     })}
                     {/* PERPETUITY ROW */}
                     <tr className="border-t-2 border-border bg-accent/30">
                       <td className="px-4 py-2.5 font-medium">Perpétuo</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs">{terminal > 0 ? formatBRL(lastProfit * (1 + gPerp)) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap">{terminal > 0 ? formatBRL(lastProfit * (1 + gPerp)) : '—'}</td>
                       <td className="px-3 py-2 text-center">
                         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background">
                           <button type="button" onClick={() => setManuals(p => ({ ...p, perpetuity: Math.max(0, perpetuity - 0.5) }))} className="h-7 w-7 flex items-center justify-center hover:bg-muted rounded-l-md"><Minus className="h-3 w-3" /></button>
@@ -718,7 +756,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                           <button type="button" onClick={() => setManuals(p => ({ ...p, perpetuity: perpetuity + 0.5 }))} className="h-7 w-7 flex items-center justify-center hover:bg-muted rounded-r-md"><Plus className="h-3 w-3" /></button>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono font-medium">{pvTerminal > 0 ? formatBRL(pvTerminal) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-medium text-xs whitespace-nowrap">{pvTerminal > 0 ? formatBRL(pvTerminal) : '—'}</td>
                     </tr>
                   </tbody>
                 </table>
