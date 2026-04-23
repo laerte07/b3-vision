@@ -396,135 +396,334 @@ const Lynch = () => {
   );
 };
 
-// ===================== VFF (DCF) =====================
+// ===================== VFF (DCF) — Redesigned =====================
+const HEADER_KPIS = [
+  { key: 'price', label: 'Preço Atual', fmt: (v: number) => formatBRL(v) },
+  { key: 'shares', label: 'Nº Total de Ações', fmt: (v: number) => v > 0 ? new Intl.NumberFormat('pt-BR').format(v) : '—' },
+  { key: 'mktcap', label: 'Market Cap', fmt: (v: number) => v > 0 ? formatBRL(v) : '—' },
+  { key: 'payout', label: 'Payout', fmt: (v: number) => v > 0 ? `${v.toFixed(1)}%` : '—' },
+  { key: 'roe', label: 'ROE', fmt: (v: number) => v > 0 ? `${v.toFixed(1)}%` : '—' },
+] as const;
+
+const KpiCell = ({ label, value, loading }: { label: string; value: string; loading: boolean }) => (
+  <div className="flex-1 min-w-[140px] rounded-lg border border-border bg-muted/30 p-3">
+    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+    {loading ? <Skeleton className="h-5 w-20 mt-1.5" /> : <p className="text-base font-bold font-mono mt-1 text-foreground">{value}</p>}
+  </div>
+);
+
+const GrowthBadge = ({ pct }: { pct: number | null }) => {
+  if (pct == null || !Number.isFinite(pct)) return <span className="text-muted-foreground text-xs">—</span>;
+  const positive = pct >= 0;
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-mono font-medium ${positive ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+      {positive ? '+' : ''}{pct.toFixed(1)}%
+    </span>
+  );
+};
+
 const VFF = ({ years }: { years: 3 | 5 }) => {
   const [ticker, setTicker] = useState(() => readPrefill(years === 3 ? 'vff3' : 'vff5'));
-  const [manuals, setManuals] = useState<{ netIncome?: number; growth?: number; discount?: number; perpetuity?: number; profits?: number[]; shares?: number }>({});
+  const [periodYears, setPeriodYears] = useState<3 | 5>(years);
+  const [manuals, setManuals] = useState<{
+    payout?: number; roe?: number; growth?: number; discount?: number; perpetuity?: number;
+    historicals?: Record<number, number>; projections?: Record<number, number>; growths?: Record<number, number>;
+    shares?: number; notes?: string;
+  }>({});
   const { fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
 
-  const autoGrowth = fd ? calcGrowthRate(fd.roe.value, fd.payout.value) : { g: 0, source: 'nd' as const };
-  const netIncome = manuals.netIncome ?? fd?.net_income.value ?? 0;
-  const growth = manuals.growth ?? autoGrowth.g;
+  // Header KPI values
+  const price = fd?.price.value ?? 0;
+  const shares = manuals.shares ?? fd?.total_shares.value ?? 0;
+  const mktcap = price * shares;
+  const apiPayout = fd?.payout.value ?? 0;
+  const apiRoe = fd?.roe.value ?? 0;
+
+  // Premissas
+  const payout = manuals.payout ?? apiPayout;
+  const roe = manuals.roe ?? apiRoe;
+  const autoGrowth = Math.max(0, Math.min(15, (1 - payout / 100) * roe));
+  const growth = manuals.growth ?? autoGrowth;
   const discount = manuals.discount ?? 15;
   const perpetuity = manuals.perpetuity ?? 3;
-  const shares = manuals.shares ?? fd?.total_shares.value ?? 0;
 
-  const autoResult = calcVFF(netIncome, growth, discount, perpetuity, shares, years);
-  const profits = manuals.profits ?? autoResult.profits;
+  // Years arrays
+  const currentYear = new Date().getFullYear();
+  const histYears = useMemo(() => Array.from({ length: 5 }, (_, i) => currentYear - 5 + i), [currentYear]);
+  const projYears = useMemo(() => Array.from({ length: periodYears }, (_, i) => currentYear + i + 1), [currentYear, periodYears]);
 
-  // Recalc with possibly manual profits
-  const r = discount / 100;
-  const gPerp = perpetuity / 100;
-  const pvProfits = profits.reduce((sum, p, i) => sum + p / Math.pow(1 + r, i + 1), 0);
-  const lastProfit = profits[profits.length - 1] || 0;
-  const terminal = r > gPerp && lastProfit > 0 ? (lastProfit * (1 + gPerp)) / (r - gPerp) : 0;
-  const pvTerminal = terminal / Math.pow(1 + r, years);
-  const marketCap = pvProfits + pvTerminal;
-  const fv = shares > 0 ? marketCap / shares : 0;
+  // Base net income (most recent — current year approx)
+  const baseNetIncome = manuals.historicals?.[currentYear] ?? fd?.net_income.value ?? 0;
 
-  const allWarnings = [...(fd?.warnings ?? []), ...autoResult.warnings];
-
-  if (fd) logValuation(`VFF${years}`, ticker, fd, { netIncome, growth, fv, marketCap });
-
-  const reprojectProfits = (ni: number, g: number) => {
-    if (ni <= 0) return Array(years).fill(0);
-    return Array.from({ length: years }, (_, i) => Math.round(ni * Math.pow(1 + g / 100, i + 1)));
+  // Historical values: default to base for current year, "—" (0) for previous (user fills)
+  const getHistorical = (y: number) => {
+    if (manuals.historicals?.[y] != null) return manuals.historicals[y];
+    if (y === currentYear) return fd?.net_income.value ?? 0;
+    return 0;
   };
 
+  // Projected values: by default base × (1+g)^n with possible per-year growth override
+  const projections = useMemo(() => {
+    const result: { year: number; profit: number; growthApplied: number }[] = [];
+    let prev = baseNetIncome;
+    for (let i = 0; i < periodYears; i++) {
+      const y = projYears[i];
+      const gApplied = manuals.growths?.[y] ?? growth;
+      let profit: number;
+      if (manuals.projections?.[y] != null) {
+        profit = manuals.projections[y];
+      } else {
+        profit = prev * (1 + gApplied / 100);
+      }
+      result.push({ year: y, profit, growthApplied: gApplied });
+      prev = profit;
+    }
+    return result;
+  }, [baseNetIncome, periodYears, projYears, growth, manuals.projections, manuals.growths]);
+
+  // DCF math
+  const r = discount / 100;
+  const gPerp = perpetuity / 100;
+  const pvProfits = projections.reduce((sum, p, i) => sum + p.profit / Math.pow(1 + r, i + 1), 0);
+  const lastProfit = projections[projections.length - 1]?.profit || 0;
+  const terminal = r > gPerp && lastProfit > 0 ? (lastProfit * (1 + gPerp)) / (r - gPerp) : 0;
+  const pvTerminal = terminal / Math.pow(1 + r, periodYears);
+  const projMarketCap = pvProfits + pvTerminal;
+  const fairPrice = shares > 0 ? projMarketCap / shares : 0;
+  const upside = price > 0 && fairPrice > 0 ? ((fairPrice - price) / price) * 100 : 0;
+
+  const isLoading = status === 'loading';
+  const allWarnings = fd?.warnings ?? [];
+
+  if (fd) logValuation(`VFF${periodYears}`, ticker, fd, { baseNetIncome, growth, fairPrice, projMarketCap });
+
+  const reset = () => setManuals({});
+
+  const handleSave = () => {
+    if (!ticker) { toast.error('Selecione um ativo.'); return; }
+    if (fairPrice <= 0) {
+      toast.error('Preço justo inválido — preencha Lucro Base e Total de Ações.');
+      return;
+    }
+    const origem = manuals.historicals != null || manuals.shares != null ? 'manual' : 'fundamentos';
+    const incomplete = (fd?.net_income.source === 'nd') || (fd?.total_shares.source === 'nd');
+    save(
+      ticker,
+      `vff${periodYears}`,
+      {
+        payout, roe, growth, discount, perpetuity, shares,
+        baseNetIncome,
+        historicals: histYears.map(y => ({ year: y, profit: getHistorical(y) })),
+        projections: projections.map(p => ({ year: p.year, profit: p.profit, growth: p.growthApplied })),
+        notes: manuals.notes ?? '',
+        origem_dados: origem,
+      },
+      fairPrice,
+      fairPrice * 0.75,
+      price,
+    );
+    if (incomplete) toast.warning('Dados incompletos — valuation baseado em input manual.');
+  };
+
+  // Build status banner content
+  const statusContent = status === 'idle'
+    ? null
+    : isLoading
+      ? <div className="rounded-lg border border-primary/20 bg-primary/5 p-2.5 flex items-center gap-2"><Loader2 className="h-4 w-4 text-primary animate-spin" /><p className="text-xs text-primary">Buscando dados…</p></div>
+      : <StatusBanner status={status} warnings={allWarnings} />;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Premissas — VFF {years} anos</CardTitle>
-          <CardDescription>Valuation com Fluxo Futuro (DCF)</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+    <div className="space-y-4">
+      {/* Asset selector + status */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="min-w-[260px] flex-1 max-w-md">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
-          {status === 'idle' ? <EmptyAssetHint /> : status === 'loading' ? <LoadingSkeleton /> : <StatusBanner status={status} warnings={allWarnings} />}
-          <FieldRow label="Preço Atual (R$)" value={fd?.price.value ?? 0} onChange={() => {}} disabled sourcedValue={fd?.price} />
-          <FieldRow
-            label="Total de Ações"
-            value={shares}
-            onChange={v => setManuals(p => ({ ...p, shares: +v }))}
-            step="1"
-            sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
-            hint="Ajuste manualmente se a API não trouxer este valor"
-          />
+        </div>
+        {statusContent && <div className="flex-1 min-w-[260px]">{statusContent}</div>}
+      </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Lucro Base (R$)</Label>
-              <SourceBadge sv={manuals.netIncome != null ? { value: manuals.netIncome, source: 'manual' } : fd?.net_income ?? { value: 0, source: 'nd' }} />
-            </div>
-            <Input type="number" value={netIncome} onChange={e => {
-              const ni = +e.target.value;
-              setManuals(p => ({ ...p, netIncome: ni, profits: reprojectProfits(ni, growth) }));
-            }} step="1" className="font-mono h-9" />
-          </div>
+      {/* TOP HEADER BAR */}
+      <div className="flex flex-wrap gap-2">
+        <KpiCell label="Preço Atual (R$)" value={HEADER_KPIS[0].fmt(price)} loading={isLoading} />
+        <KpiCell label="Nº Total de Ações" value={HEADER_KPIS[1].fmt(shares)} loading={isLoading} />
+        <KpiCell label="Market Cap (R$)" value={HEADER_KPIS[2].fmt(mktcap)} loading={isLoading} />
+        <KpiCell label="Payout (%)" value={HEADER_KPIS[3].fmt(apiPayout)} loading={isLoading} />
+        <KpiCell label="ROE (%)" value={HEADER_KPIS[4].fmt(apiRoe)} loading={isLoading} />
+      </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Crescimento (g) %</Label>
-              <SourceBadge sv={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth.g, source: autoGrowth.source }} />
-            </div>
-            <Input type="number" value={growth} onChange={e => {
-              const g = +e.target.value;
-              setManuals(p => ({ ...p, growth: g, profits: reprojectProfits(netIncome, g) }));
-            }} step="0.5" className="font-mono h-9" />
-            <p className="text-[10px] text-muted-foreground">g = (1 − Payout) × ROE, limitado 0–15%</p>
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* LEFT COLUMN — Premissas + Realidade Projetada */}
+        <div className="lg:col-span-5 space-y-4">
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-base">Premissas</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <FieldRow label="Payout médio (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} step="0.5" sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
+              <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} step="0.5" sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
+              <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
+              <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
+              <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
+              <p className="text-[10px] text-muted-foreground italic">💡 Média histórica da Selic é 11,53% (9,80% ex IR15%)</p>
+            </CardContent>
+          </Card>
 
-          <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
-          <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
+          <Card className="border-primary/30 bg-primary/[0.03]">
+            <CardHeader className="pb-3"><CardTitle className="text-base">Realidade Projetada</CardTitle></CardHeader>
+            <CardContent className="space-y-2.5">
+              <div className="flex justify-between items-baseline text-sm">
+                <span className="text-muted-foreground">Market Cap (projetado)</span>
+                <span className="font-mono font-medium">{projMarketCap > 0 ? formatBRL(projMarketCap) : '—'}</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm">
+                <span className="text-muted-foreground">Nº total de ações</span>
+                <span className="font-mono font-medium">{shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'}</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm">
+                <span className="text-muted-foreground">Nº ações ex-tesouraria</span>
+                <span className="font-mono font-medium">{shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'}</span>
+              </div>
+              <div className="border-t border-border pt-2.5 mt-2 space-y-2">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço por ação</span>
+                  <span className="font-mono font-bold text-xl text-primary">{fairPrice > 0 ? formatBRL(fairPrice) : '—'}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Upside / Downside</span>
+                  <span className={`font-mono font-bold text-xl ${upside > 0 ? 'text-emerald-500' : upside < 0 ? 'text-red-500' : 'text-primary'}`}>
+                    {fairPrice > 0 && price > 0 ? `${upside > 0 ? '+' : ''}${upside.toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground pt-1">Atualizado em: {new Date().toLocaleString('pt-BR')}</p>
+              <div className="flex gap-2 pt-2">
+                <Button className="flex-1 gap-2" onClick={handleSave} disabled={!ticker || fairPrice <= 0}>
+                  <Save className="h-4 w-4" /> Salvar Preço Teto
+                </Button>
+                <Button variant="outline" className="gap-2" onClick={reset} title="Resetar inputs manuais">
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium">Lucros Projetados</Label>
-              <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setManuals(p => ({ ...p, profits: undefined }))}>↻ Reprojetar</button>
-            </div>
-            {profits.map((profit, i) => (
-              <FieldRow key={i} label={`Ano ${i + 1} (R$)`} value={profit} onChange={v => {
-                const np = [...profits]; np[i] = +v;
-                setManuals(p => ({ ...p, profits: np }));
-              }} step="1" />
-            ))}
-          </div>
+        {/* RIGHT COLUMN — DCF Table */}
+        <div className="lg:col-span-7">
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-base">Fluxo de Caixa Descontado</CardTitle>
+                <CardDescription className="text-xs mt-0.5">VFF — projeção de {periodYears} anos + perpetuidade</CardDescription>
+              </div>
+              <div className="inline-flex rounded-md border border-border bg-muted/40 p-0.5">
+                {[3, 5].map(y => (
+                  <button
+                    key={y}
+                    type="button"
+                    onClick={() => setPeriodYears(y as 3 | 5)}
+                    className={`px-2.5 py-1 text-xs rounded-sm font-medium transition-colors ${periodYears === y ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {y} anos
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                      <th className="text-left px-4 py-2 font-medium">Ano</th>
+                      <th className="text-right px-3 py-2 font-medium">Lucro Líquido (R$)</th>
+                      <th className="text-center px-3 py-2 font-medium">Crescimento</th>
+                      <th className="text-right px-4 py-2 font-medium">VPL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* HISTORICAL ROWS */}
+                    {histYears.map((y, i) => {
+                      const profit = getHistorical(y);
+                      const prev = i > 0 ? getHistorical(histYears[i - 1]) : 0;
+                      const growthYoY = prev > 0 ? ((profit - prev) / prev) * 100 : null;
+                      return (
+                        <tr key={y} className="border-b border-border/40 bg-muted/20 hover:bg-muted/40">
+                          <td className="px-4 py-2 font-mono text-muted-foreground">{y}</td>
+                          <td className="px-3 py-1.5">
+                            <Input
+                              type="number"
+                              value={profit}
+                              onChange={e => setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: +e.target.value } }))}
+                              className="font-mono h-8 text-right text-xs"
+                              step="1"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-center"><GrowthBadge pct={growthYoY} /></td>
+                          <td className="px-4 py-2 text-right text-muted-foreground font-mono">—</td>
+                        </tr>
+                      );
+                    })}
+                    {/* DIVIDER */}
+                    <tr><td colSpan={4} className="border-t-2 border-primary/30 py-0"></td></tr>
+                    {/* PROJECTED ROWS */}
+                    {projections.map((p, i) => {
+                      const vpl = p.profit / Math.pow(1 + r, i + 1);
+                      return (
+                        <tr key={p.year} className="border-b border-border/40 bg-primary/[0.04] border-l-2 border-l-primary/40 hover:bg-primary/[0.08]">
+                          <td className="px-4 py-2 font-mono font-medium text-primary">{p.year}</td>
+                          <td className="px-3 py-1.5">
+                            <Input
+                              type="number"
+                              value={Math.round(p.profit)}
+                              onChange={e => setManuals(prev => ({ ...prev, projections: { ...(prev.projections ?? {}), [p.year]: +e.target.value } }))}
+                              className="font-mono h-8 text-right text-xs"
+                              step="1"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <Input
+                              type="number"
+                              value={p.growthApplied.toFixed(2)}
+                              onChange={e => setManuals(prev => ({ ...prev, growths: { ...(prev.growths ?? {}), [p.year]: +e.target.value }, projections: undefined }))}
+                              className="font-mono h-8 text-center text-xs w-20 mx-auto"
+                              step="0.5"
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-right font-mono">{vpl > 0 ? formatBRL(vpl) : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                    {/* PERPETUITY ROW */}
+                    <tr className="border-t-2 border-border bg-accent/30">
+                      <td className="px-4 py-2.5 font-medium">Perpétuo</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs">{terminal > 0 ? formatBRL(lastProfit * (1 + gPerp)) : '—'}</td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="inline-flex items-center gap-1 rounded-md border border-border bg-background">
+                          <button type="button" onClick={() => setManuals(p => ({ ...p, perpetuity: Math.max(0, perpetuity - 0.5) }))} className="h-7 w-7 flex items-center justify-center hover:bg-muted rounded-l-md"><Minus className="h-3 w-3" /></button>
+                          <span className="text-xs font-mono px-1.5 min-w-[40px] text-center">{perpetuity.toFixed(1)}%</span>
+                          <button type="button" onClick={() => setManuals(p => ({ ...p, perpetuity: perpetuity + 0.5 }))} className="h-7 w-7 flex items-center justify-center hover:bg-muted rounded-r-md"><Plus className="h-3 w-3" /></button>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono font-medium">{pvTerminal > 0 ? formatBRL(pvTerminal) : '—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
 
-          <Button className="w-full gap-2 mt-2" onClick={() => {
-            if (!ticker) { toast.error('Selecione um ativo.'); return; }
-            if (fv <= 0) {
-              toast.error('Preço justo inválido — preencha Lucro Base e Total de Ações para calcular.');
-              return;
-            }
-            const origem = manuals.netIncome != null || manuals.shares != null ? 'manual' : 'fundamentos';
-            const incomplete = (fd?.net_income.source === 'nd') || (fd?.total_shares.source === 'nd');
-            save(
-              ticker,
-              `vff${years}`,
-              { netIncome, growth, discount, perpetuity, profits, shares, origem_dados: origem },
-              fv,
-              fv * 0.75,
-              fd?.price.value ?? 0,
-            );
-            if (incomplete) toast.warning('Dados incompletos — valuation baseado em input manual');
-          }} disabled={!ticker || fv <= 0}><Save className="h-4 w-4" /> Salvar</Button>
-        </CardContent>
-      </Card>
-      <div className="space-y-6">
-        <ResultCard fairValue={fv} currentPrice={fd?.price.value ?? 0} maxBuyPrice={fv * 0.75} formula="MktCap = Σ VPL Lucros + Perpétuo. PJ = MktCap / Ações" />
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Detalhamento</CardTitle></CardHeader>
-          <CardContent className="space-y-1 text-xs font-mono text-muted-foreground">
-            <p>Lucro Base: {formatBRL(netIncome)} ({(manuals.netIncome != null ? 'manual' : fd?.net_income.source) ?? 'nd'})</p>
-            <p>Crescimento (g): {growth.toFixed(2)}%</p>
-            <p>VPL Lucros: {formatBRL(pvProfits)}</p>
-            <p>Valor Terminal: {formatBRL(terminal)}</p>
-            <p>VP Terminal: {formatBRL(pvTerminal)}</p>
-            <p>Market Cap Proj.: {formatBRL(marketCap)}</p>
-            <p className="pt-1 border-t border-border text-primary font-semibold">Preço Justo: {formatBRL(fv)}</p>
-          </CardContent>
-        </Card>
+          {/* NOTES */}
+          <Card className="mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Anotações</CardTitle></CardHeader>
+            <CardContent>
+              <Textarea
+                value={manuals.notes ?? ''}
+                onChange={e => setManuals(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Escreva suas anotações sobre o ativo aqui... (salvo junto com o preço teto)"
+                className="min-h-[90px] text-sm resize-y"
+              />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
