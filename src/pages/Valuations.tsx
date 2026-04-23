@@ -19,8 +19,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
   buildFinancialData,
-  calcGrowthRate,
-  calcVFF,
   calcGraham,
   calcBazin,
   calcBuffett,
