@@ -651,16 +651,23 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                     {/* HISTORICAL ROWS */}
                     {histYears.map((y, i) => {
                       const profit = getHistorical(y);
-                      const prev = i > 0 ? getHistorical(histYears[i - 1]) : 0;
-                      const growthYoY = prev > 0 ? ((profit - prev) / prev) * 100 : null;
+                      const prev = i > 0 ? getHistorical(histYears[i - 1]) : null;
+                      const growthYoY = (profit != null && prev != null && prev > 0)
+                        ? ((profit - prev) / prev) * 100
+                        : null;
                       return (
                         <tr key={y} className="border-b border-border/40 bg-muted/20 hover:bg-muted/40">
                           <td className="px-4 py-2 font-mono text-muted-foreground">{y}</td>
                           <td className="px-3 py-1.5">
                             <Input
                               type="number"
-                              value={profit}
-                              onChange={e => setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: +e.target.value } }))}
+                              value={profit ?? ''}
+                              placeholder="—"
+                              onChange={e => {
+                                const raw = e.target.value;
+                                const val = raw === '' ? null : +raw;
+                                setManuals(p => ({ ...p, historicals: { ...(p.historicals ?? {}), [y]: val } }));
+                              }}
                               className="font-mono h-8 text-right text-xs"
                               step="1"
                             />
