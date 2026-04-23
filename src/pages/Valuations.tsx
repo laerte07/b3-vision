@@ -632,10 +632,6 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                 <span className="text-muted-foreground">Nº total de ações</span>
                 <span className="font-mono font-medium">{shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'}</span>
               </div>
-              <div className="flex justify-between items-baseline text-sm">
-                <span className="text-muted-foreground">Nº ações ex-tesouraria</span>
-                <span className="font-mono font-medium">{shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'}</span>
-              </div>
               <div className="border-t border-border pt-2.5 mt-2 space-y-2">
                 <div className="flex justify-between items-baseline">
                   <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço por ação</span>
