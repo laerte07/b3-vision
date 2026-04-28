@@ -108,16 +108,17 @@ export const useConfirmContribution = () => {
 
       if (cErr) throw cErr;
 
-      // 2. Insert contribution items (for history)
-      const buyItems = input.items.filter(i => i.type === 'compra');
-      if (buyItems.length > 0) {
+      // 2. Insert contribution items (for history) — buys with positive amount, sells with negative amount
+      const historyItems = input.items.filter(i => i.quantity > 0);
+      if (historyItems.length > 0) {
         const { error: iErr } = await supabase
           .from('contribution_items')
           .insert(
-            buyItems.map(item => ({
+            historyItems.map(item => ({
               contribution_id: contrib.id,
               asset_id: item.asset_id,
-              amount: item.amount,
+              // negative amount marks a sale, positive marks a buy
+              amount: item.type === 'venda' ? -Math.abs(item.amount) : Math.abs(item.amount),
               quantity: item.quantity,
               unit_price: item.unit_price,
             }))
@@ -171,10 +172,11 @@ export const useConfirmContribution = () => {
           console.log(`[Venda] asset=${item.asset_id} oldQty=${oldQty} sellQty=${sellQty} newQty=${newQty} PM=${oldAvg} (unchanged)`);
 
           if (newQty <= 0) {
-            // Full sell — zero out position
+            // Full sell — zero quantity but PRESERVE avg_price so realized profit
+            // can still be calculated from historical transactions
             await supabase
               .from('positions')
-              .update({ quantity: 0, avg_price: 0 })
+              .update({ quantity: 0 })
               .eq('id', pos.id);
           } else {
             // Partial sell — keep avg_price unchanged
