@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fadeUp, stagger } from '@/lib/motion-variants';
 import {
@@ -100,6 +103,41 @@ const Dashboard = () => {
   const { data: transactions = [] } = useTransactions();
   const [showAllAssets, setShowAllAssets] = useState(false);
 
+  // ─── Raw positions (includes zeroed positions of fully-sold assets) ─────
+  // Needed because realized profit must use the avg_price that existed at the
+  // time of the sale, even if the asset is no longer active in `portfolio`.
+  const { user } = useAuth();
+  const { data: rawPositions = [] } = useQuery({
+    queryKey: ['raw-positions', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('positions')
+        .select('asset_id, avg_price, quantity')
+        .eq('user_id', user!.id);
+      if (error) throw error;
+      return (data ?? []).map(p => ({
+        asset_id: p.asset_id,
+        avg_price: Number(p.avg_price),
+        quantity: Number(p.quantity),
+      }));
+    },
+  });
+
+  // ─── Asset tickers (for showing latest sale ticker) ─────────────────────
+  const { data: assetTickers = [] } = useQuery({
+    queryKey: ['asset-tickers', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('assets')
+        .select('id, ticker')
+        .eq('user_id', user!.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
   const { data: benchmarkData = [] } = useBenchmarkHistory(['CDI', 'IBOV'], startDate);
 
@@ -189,18 +227,49 @@ const Dashboard = () => {
   );
 
   // ─── Realized profit from sales ───────────────────────────
-  const realizedProfit = useMemo(() => {
+  const realizedStats = useMemo(() => {
     const avgPriceMap = new Map<string, number>();
-    portfolio.forEach(p => avgPriceMap.set(p.id, p.avg_price));
+    // Prefer raw positions (includes zeroed positions of fully-sold assets)
+    rawPositions.forEach(p => {
+      if (p.avg_price > 0) avgPriceMap.set(p.asset_id, p.avg_price);
+    });
+    // Fallback: portfolio (active assets only)
+    portfolio.forEach(p => {
+      if (!avgPriceMap.has(p.id) && p.avg_price > 0) {
+        avgPriceMap.set(p.id, p.avg_price);
+      }
+    });
+    const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
+
     const sells = transactions.filter(t => t.type === 'venda' || t.type === 'sell');
     let total = 0;
     sells.forEach(t => {
       const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
-      const profit = (t.price - avgPrice) * t.quantity - (t.fees || 0);
-      total += profit;
+      if (avgPrice <= 0) return; // can't compute without cost basis
+      total += (t.price - avgPrice) * t.quantity - (t.fees || 0);
     });
-    return total;
-  }, [transactions, portfolio]);
+
+    // Most recent sale
+    const sorted = [...sells].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const last = sorted[0];
+    const lastSale = last
+      ? {
+          ticker: tickerMap.get(last.asset_id) ?? '-',
+          date: last.date,
+        }
+      : null;
+
+    if (import.meta.env.DEV) {
+      console.log('[Dashboard] realizedStats:', {
+        salesCount: sells.length,
+        total,
+        lastSale,
+      });
+    }
+
+    return { total, count: sells.length, lastSale };
+  }, [transactions, portfolio, rawPositions, assetTickers]);
+  const realizedProfit = realizedStats.total;
 
   // PnL latente total
   const totalLatentPnL = assetValues.reduce((s, a) => s + a.pnlBRL, 0);
@@ -258,17 +327,28 @@ const Dashboard = () => {
       items.push({ icon: Layers, label: 'Classe Dominante', value: dominant.name, detail: `${dominant.pct.toFixed(1)}% da carteira`, context: dominant.pct > 50 ? 'Alta concentração em uma classe' : 'Distribuição saudável', color: 'text-chart-4' });
     }
 
-    items.push({
-      icon: Banknote,
-      label: 'Lucro Realizado',
-      value: formatBRL(realizedProfit),
-      detail: realizedProfit !== 0 ? 'resultado em vendas' : 'sem vendas registradas',
-      context: realizedProfit > 0 ? 'Resultado positivo acumulado' : realizedProfit < 0 ? 'Resultado negativo acumulado' : '',
-      color: realizedProfit >= 0 ? 'text-positive' : 'text-negative',
-    });
+    {
+      const { count, lastSale } = realizedStats;
+      const detail = count > 0
+        ? `${count} venda${count === 1 ? '' : 's'} realizada${count === 1 ? '' : 's'}`
+        : 'sem vendas registradas';
+      const context = count > 0 && lastSale
+        ? `última: ${lastSale.ticker} (${lastSale.date.slice(8, 10)}/${lastSale.date.slice(5, 7)})`
+        : realizedProfit > 0
+          ? 'Resultado positivo acumulado'
+          : realizedProfit < 0 ? 'Resultado negativo acumulado' : '';
+      items.push({
+        icon: Banknote,
+        label: 'Lucro Realizado',
+        value: formatBRL(realizedProfit),
+        detail,
+        context,
+        color: realizedProfit > 0 ? 'text-positive' : realizedProfit < 0 ? 'text-negative' : 'text-muted-foreground',
+      });
+    }
 
     return items;
-  }, [topAsset, topAssetPct, biggestGain, biggestLoss, classAllocations, realizedProfit]);
+  }, [topAsset, topAssetPct, biggestGain, biggestLoss, classAllocations, realizedProfit, realizedStats]);
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
