@@ -327,14 +327,25 @@ const Dashboard = () => {
       items.push({ icon: Layers, label: 'Classe Dominante', value: dominant.name, detail: `${dominant.pct.toFixed(1)}% da carteira`, context: dominant.pct > 50 ? 'Alta concentração em uma classe' : 'Distribuição saudável', color: 'text-chart-4' });
     }
 
-    items.push({
-      icon: Banknote,
-      label: 'Lucro Realizado',
-      value: formatBRL(realizedProfit),
-      detail: realizedProfit !== 0 ? 'resultado em vendas' : 'sem vendas registradas',
-      context: realizedProfit > 0 ? 'Resultado positivo acumulado' : realizedProfit < 0 ? 'Resultado negativo acumulado' : '',
-      color: realizedProfit >= 0 ? 'text-positive' : 'text-negative',
-    });
+    {
+      const { count, lastSale } = realizedStats;
+      const detail = count > 0
+        ? `${count} venda${count === 1 ? '' : 's'} realizada${count === 1 ? '' : 's'}`
+        : 'sem vendas registradas';
+      const context = count > 0 && lastSale
+        ? `última: ${lastSale.ticker} (${lastSale.date.slice(8, 10)}/${lastSale.date.slice(5, 7)})`
+        : realizedProfit > 0
+          ? 'Resultado positivo acumulado'
+          : realizedProfit < 0 ? 'Resultado negativo acumulado' : '';
+      items.push({
+        icon: Banknote,
+        label: 'Lucro Realizado',
+        value: formatBRL(realizedProfit),
+        detail,
+        context,
+        color: realizedProfit > 0 ? 'text-positive' : realizedProfit < 0 ? 'text-negative' : 'text-muted-foreground',
+      });
+    }
 
     return items;
   }, [topAsset, topAssetPct, biggestGain, biggestLoss, classAllocations, realizedProfit]);
