@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fadeUp, stagger } from '@/lib/motion-variants';
 import {
@@ -99,6 +102,41 @@ const Dashboard = () => {
   const { data: contributions = [] } = useContributions();
   const { data: transactions = [] } = useTransactions();
   const [showAllAssets, setShowAllAssets] = useState(false);
+
+  // ─── Raw positions (includes zeroed positions of fully-sold assets) ─────
+  // Needed because realized profit must use the avg_price that existed at the
+  // time of the sale, even if the asset is no longer active in `portfolio`.
+  const { user } = useAuth();
+  const { data: rawPositions = [] } = useQuery({
+    queryKey: ['raw-positions', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('positions')
+        .select('asset_id, avg_price, quantity')
+        .eq('user_id', user!.id);
+      if (error) throw error;
+      return (data ?? []).map(p => ({
+        asset_id: p.asset_id,
+        avg_price: Number(p.avg_price),
+        quantity: Number(p.quantity),
+      }));
+    },
+  });
+
+  // ─── Asset tickers (for showing latest sale ticker) ─────────────────────
+  const { data: assetTickers = [] } = useQuery({
+    queryKey: ['asset-tickers', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('assets')
+        .select('id, ticker')
+        .eq('user_id', user!.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
   const { data: benchmarkData = [] } = useBenchmarkHistory(['CDI', 'IBOV'], startDate);
