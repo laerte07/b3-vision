@@ -257,8 +257,8 @@ export const useDeleteContribution = () => {
           const newQty = oldQty - qty;
 
           if (newQty <= 0) {
-            // Position fully reversed — reset to zero
-            await supabase.from('positions').update({ quantity: 0, avg_price: 0 }).eq('id', pos.id);
+            // Position fully reversed — reset quantity but preserve avg_price
+            await supabase.from('positions').update({ quantity: 0 }).eq('id', pos.id);
           } else {
             // Reverse weighted avg: old_avg_before = (current_avg * current_qty - item_price * item_qty) / (current_qty - item_qty)
             const reversedAvg = ((oldAvg * oldQty) - (Number(item.unit_price) * qty)) / newQty;
