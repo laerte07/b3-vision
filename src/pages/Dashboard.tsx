@@ -227,18 +227,49 @@ const Dashboard = () => {
   );
 
   // ─── Realized profit from sales ───────────────────────────
-  const realizedProfit = useMemo(() => {
+  const realizedStats = useMemo(() => {
     const avgPriceMap = new Map<string, number>();
-    portfolio.forEach(p => avgPriceMap.set(p.id, p.avg_price));
+    // Prefer raw positions (includes zeroed positions of fully-sold assets)
+    rawPositions.forEach(p => {
+      if (p.avg_price > 0) avgPriceMap.set(p.asset_id, p.avg_price);
+    });
+    // Fallback: portfolio (active assets only)
+    portfolio.forEach(p => {
+      if (!avgPriceMap.has(p.id) && p.avg_price > 0) {
+        avgPriceMap.set(p.id, p.avg_price);
+      }
+    });
+    const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
+
     const sells = transactions.filter(t => t.type === 'venda' || t.type === 'sell');
     let total = 0;
     sells.forEach(t => {
       const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
-      const profit = (t.price - avgPrice) * t.quantity - (t.fees || 0);
-      total += profit;
+      if (avgPrice <= 0) return; // can't compute without cost basis
+      total += (t.price - avgPrice) * t.quantity - (t.fees || 0);
     });
-    return total;
-  }, [transactions, portfolio]);
+
+    // Most recent sale
+    const sorted = [...sells].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const last = sorted[0];
+    const lastSale = last
+      ? {
+          ticker: tickerMap.get(last.asset_id) ?? '-',
+          date: last.date,
+        }
+      : null;
+
+    if (import.meta.env.DEV) {
+      console.log('[Dashboard] realizedStats:', {
+        salesCount: sells.length,
+        total,
+        lastSale,
+      });
+    }
+
+    return { total, count: sells.length, lastSale };
+  }, [transactions, portfolio, rawPositions, assetTickers]);
+  const realizedProfit = realizedStats.total;
 
   // PnL latente total
   const totalLatentPnL = assetValues.reduce((s, a) => s + a.pnlBRL, 0);
