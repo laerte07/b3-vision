@@ -218,6 +218,7 @@ export const useConfirmContribution = () => {
       qc.invalidateQueries({ queryKey: ['contributions'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
       qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['raw-positions'] });
       toast.success('Lançamento confirmado e posições atualizadas!');
     },
     onError: (err: any) => toast.error(`Erro ao confirmar lançamento: ${err.message}`),
@@ -277,6 +278,8 @@ export const useDeleteContribution = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contributions'] });
       qc.invalidateQueries({ queryKey: ['portfolio'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['raw-positions'] });
       toast.success('Aporte excluído e posições revertidas');
     },
     onError: (err: any) => toast.error(err.message),
