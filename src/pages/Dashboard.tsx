@@ -348,7 +348,7 @@ const Dashboard = () => {
     }
 
     return items;
-  }, [topAsset, topAssetPct, biggestGain, biggestLoss, classAllocations, realizedProfit]);
+  }, [topAsset, topAssetPct, biggestGain, biggestLoss, classAllocations, realizedProfit, realizedStats]);
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
