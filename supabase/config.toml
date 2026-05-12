@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.historical-benchmarks]
 verify_jwt = false
+
+[functions.brapi-lookup]
+verify_jwt = false
