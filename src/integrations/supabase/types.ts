@@ -723,10 +723,14 @@ export type Database = {
       watchlist: {
         Row: {
           asset_id: string | null
+          change_percent: number | null
           created_at: string
+          dy_12m: number | null
           id: string
+          last_price: number | null
           nome: string | null
           notes: string | null
+          price_updated_at: string | null
           setor: string | null
           ticker: string
           updated_at: string
@@ -734,10 +738,14 @@ export type Database = {
         }
         Insert: {
           asset_id?: string | null
+          change_percent?: number | null
           created_at?: string
+          dy_12m?: number | null
           id?: string
+          last_price?: number | null
           nome?: string | null
           notes?: string | null
+          price_updated_at?: string | null
           setor?: string | null
           ticker: string
           updated_at?: string
@@ -745,10 +753,14 @@ export type Database = {
         }
         Update: {
           asset_id?: string | null
+          change_percent?: number | null
           created_at?: string
+          dy_12m?: number | null
           id?: string
+          last_price?: number | null
           nome?: string | null
           notes?: string | null
+          price_updated_at?: string | null
           setor?: string | null
           ticker?: string
           updated_at?: string
