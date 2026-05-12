@@ -124,9 +124,8 @@ Deno.serve(async (req) => {
 
     const { data: assets, error: assetsErr } = await supabase
       .from("assets")
-      .select("id, ticker")
-      .eq("user_id", userId)
-      .eq("active", true);
+      .select("id, ticker, active")
+      .eq("user_id", userId);
 
     if (assetsErr) {
       return new Response(JSON.stringify({ error: assetsErr.message, updated: 0 }), {
@@ -135,7 +134,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!assets || assets.length === 0) {
+    // Include inactive assets that are in the watchlist
+    const { data: wlRows } = await supabase
+      .from("watchlist")
+      .select("asset_id")
+      .eq("user_id", userId);
+    const watchlistIds = new Set((wlRows ?? []).map((w: any) => w.asset_id).filter(Boolean));
+    const filteredAssets = (assets ?? []).filter((a: any) => a.active || watchlistIds.has(a.id));
+
+    if (!filteredAssets || filteredAssets.length === 0) {
       return new Response(JSON.stringify({ error: "No active assets found", updated: 0, ok_count: 0, error_count: 0, results: [] }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -159,7 +166,7 @@ Deno.serve(async (req) => {
     const results: any[] = [];
     let limitedPlanDetected = false;
 
-    for (const asset of assets) {
+    for (const asset of filteredAssets) {
       try {
         const { data: brapiData, raw: rawText, status: httpStatus, limitedPlan } = await fetchBrapi(asset.ticker, brapiToken);
 

@@ -303,6 +303,7 @@ export const useRefreshMarket = () => {
 
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['portfolio'] });
+      qc.invalidateQueries({ queryKey: ['watchlist'] });
 
       console.log('RETORNO COMPLETO EDGE FUNCTION:', data);
 

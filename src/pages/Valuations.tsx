@@ -14,6 +14,7 @@ import { useSavedValuations } from '@/hooks/useSavedValuations';
 import { formatBRL, formatPct } from '@/lib/format';
 import { usePortfolio, PortfolioAsset } from '@/hooks/usePortfolio';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
+import { useWatchlist } from '@/hooks/useWatchlist';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -191,9 +192,13 @@ const FieldRow = ({ label, value, onChange, step = '0.01', disabled = false, hin
 const useSaveValuation = () => {
   const { user } = useAuth();
   const { data: portfolio = [] } = usePortfolio();
+  const { data: watchlist = [] } = useWatchlist();
   return async (ticker: string, modelType: string, params: Record<string, any>, fairValue: number, maxBuyPrice: number, currentPrice: number) => {
     if (!user) return;
-    const asset = portfolio.find(a => a.ticker.toUpperCase() === ticker.toUpperCase());
+    const upper = ticker.toUpperCase();
+    const asset =
+      portfolio.find(a => a.ticker.toUpperCase() === upper) ||
+      watchlist.find(a => a.ticker.toUpperCase() === upper);
     if (!asset) { toast.error(`Ativo ${ticker} não encontrado.`); return; }
     const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
@@ -207,15 +212,26 @@ const useSaveValuation = () => {
 
 const AssetSelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
   const { data: portfolio = [] } = usePortfolio();
+  const { data: watchlist = [] } = useWatchlist();
   const { data: classes = [] } = useAssetClasses();
   const acoesClassId = classes.find(c => c.slug === ACOES_SLUG)?.id;
   const stocks = portfolio.filter(a => a.class_id === acoesClassId);
+  const watched = watchlist.filter(w => !stocks.some(s => s.ticker === w.ticker));
   return (
     <div className="space-y-1">
-      <Label className="text-xs">Ativo (somente Ações)</Label>
+      <Label className="text-xs">Ativo</Label>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="font-mono h-9"><SelectValue placeholder="Selecione uma ação" /></SelectTrigger>
-        <SelectContent>{stocks.map(a => <SelectItem key={a.id} value={a.ticker}>{a.ticker} — {a.name || ''}</SelectItem>)}</SelectContent>
+        <SelectContent>
+          {stocks.length > 0 && (
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Carteira</div>
+          )}
+          {stocks.map(a => <SelectItem key={a.id} value={a.ticker}>{a.ticker} — {a.name || ''}</SelectItem>)}
+          {watched.length > 0 && (
+            <div className="px-2 py-1 mt-1 text-[10px] uppercase tracking-wider text-primary/80 border-t border-border/40">Em Observação</div>
+          )}
+          {watched.map(a => <SelectItem key={`wl-${a.watchlist_id}`} value={a.ticker}>{a.ticker} — {a.name || ''}</SelectItem>)}
+        </SelectContent>
       </Select>
     </div>
   );
@@ -224,17 +240,20 @@ const AssetSelector = ({ value, onChange }: { value: string; onChange: (v: strin
 /** Hook: find asset and build FinancialData with status */
 const useFinancialData = (ticker: string): { asset: PortfolioAsset | undefined; fd: FinancialData | null; status: DataStatus } => {
   const { data: portfolio = [], isLoading } = usePortfolio();
+  const { data: watchlist = [], isLoading: wlLoading } = useWatchlist();
   return useMemo(() => {
     if (!ticker) return { asset: undefined, fd: null, status: 'idle' as DataStatus };
-    if (isLoading) return { asset: undefined, fd: null, status: 'loading' as DataStatus };
-    const asset = portfolio.find(a => a.ticker === ticker);
+    if (isLoading || wlLoading) return { asset: undefined, fd: null, status: 'loading' as DataStatus };
+    const asset =
+      portfolio.find(a => a.ticker === ticker) ||
+      (watchlist.find(a => a.ticker === ticker) as PortfolioAsset | undefined);
     if (!asset) return { asset: undefined, fd: null, status: 'error' as DataStatus };
     const fd = buildFinancialData(asset);
     // Determine status based on warnings and data quality
     const hasNd = [fd.lpa, fd.vpa, fd.price, fd.roe, fd.total_shares].some(sv => sv.source === 'nd');
     const status: DataStatus = hasNd ? 'partial' : 'success';
     return { asset, fd, status };
-  }, [portfolio, ticker, isLoading]);
+  }, [portfolio, watchlist, ticker, isLoading, wlLoading]);
 };
 
 // ===================== GRAHAM =====================
