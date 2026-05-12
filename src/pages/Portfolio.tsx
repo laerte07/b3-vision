@@ -196,9 +196,6 @@ const Portfolio = () => {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="watchlist">
-              <Card className="p-6 text-center text-muted-foreground text-sm mb-4">
-                Nenhum ativo cadastrado em carteira. Use "Novo Ativo" acima ou adicione tickers à watchlist abaixo.
-              </Card>
               <WatchlistTab />
             </TabsContent>
           </Tabs>
