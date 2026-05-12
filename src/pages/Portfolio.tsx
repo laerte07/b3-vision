@@ -335,6 +335,9 @@ const Portfolio = () => {
               </TabsContent>
             );
           })}
+          <TabsContent value="__watchlist">
+            <WatchlistTab />
+          </TabsContent>
         </Tabs></motion.div>
       )}
 
