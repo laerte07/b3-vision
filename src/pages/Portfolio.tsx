@@ -11,9 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Pencil, Trash2, RefreshCw, BarChart3 } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw, BarChart3, Eye } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import FundamentalsDrawer from '@/components/FundamentalsDrawer';
+import WatchlistTab from '@/components/WatchlistTab';
+import { useWatchlist } from '@/hooks/useWatchlist';
 import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { usePortfolio, useAddAsset, useUpdatePosition, useDeleteAsset, useRefreshMarket, PortfolioAsset } from '@/hooks/usePortfolio';
 import { formatBRL, formatPct } from '@/lib/format';
@@ -22,6 +24,7 @@ import { cn } from '@/lib/utils';
 const Portfolio = () => {
   const { data: classes = [] } = useAssetClasses();
   const { data: portfolio = [], isLoading } = usePortfolio();
+  const { data: watchlist = [] } = useWatchlist();
   const addAsset = useAddAsset();
   const updatePosition = useUpdatePosition();
   const deleteAsset = useDeleteAsset();
@@ -184,9 +187,22 @@ const Portfolio = () => {
       </motion.div>
 
       {portfolio.length === 0 ? (
-        <Card className="p-12 text-center text-muted-foreground text-sm">
-          Nenhum ativo cadastrado. Clique em "Novo Ativo" para começar.
-        </Card>
+        <motion.div variants={fadeUp} custom={1}>
+          <Tabs defaultValue="watchlist">
+            <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
+              <TabsTrigger value="watchlist" className="text-xs gap-1.5">
+                <Eye className="h-3 w-3" /> Em Observação
+                <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">{watchlist.length}</Badge>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="watchlist">
+              <Card className="p-6 text-center text-muted-foreground text-sm mb-4">
+                Nenhum ativo cadastrado em carteira. Use "Novo Ativo" acima ou adicione tickers à watchlist abaixo.
+              </Card>
+              <WatchlistTab />
+            </TabsContent>
+          </Tabs>
+        </motion.div>
       ) : (
         <motion.div variants={fadeUp} custom={1}><Tabs defaultValue={defaultTab}>
           <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
@@ -198,6 +214,10 @@ const Portfolio = () => {
                 </TabsTrigger>
               );
             })}
+            <TabsTrigger value="__watchlist" className="text-xs gap-1.5">
+              <Eye className="h-3 w-3" /> Em Observação
+              <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">{watchlist.length}</Badge>
+            </TabsTrigger>
           </TabsList>
 
           {classesWithPositions.map(cls => {
