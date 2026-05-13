@@ -317,34 +317,63 @@ const Dashboard = () => {
 
   // ─── Realized profit from sales ───────────────────────────
   const realizedStats = useMemo(() => {
-    const avgPriceMap = new Map<string, number>();
+    const fallbackAvgPriceMap = new Map<string, number>();
     // Prefer raw positions (includes zeroed positions of fully-sold assets)
     rawPositions.forEach(p => {
-      if (p.avg_price > 0) avgPriceMap.set(p.asset_id, p.avg_price);
+      if (p.avg_price > 0) fallbackAvgPriceMap.set(p.asset_id, p.avg_price);
     });
     // Fallback: portfolio (active assets only)
     portfolio.forEach(p => {
-      if (!avgPriceMap.has(p.id) && p.avg_price > 0) {
-        avgPriceMap.set(p.id, p.avg_price);
+      if (!fallbackAvgPriceMap.has(p.id) && p.avg_price > 0) {
+        fallbackAvgPriceMap.set(p.id, p.avg_price);
       }
     });
     const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
 
-    const sells = effectiveTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const orderedTransactions = [...effectiveTransactions].sort((a, b) => a.date.localeCompare(b.date));
+    const sells = orderedTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const positionsAtSale = new Map<string, { quantity: number; avgPrice: number }>();
+    const saleDetails: { ticker: string; date: string; quantity: number; sellPrice: number; avgPrice: number; profit: number; tooltip: string }[] = [];
     let total = 0;
-    sells.forEach(t => {
-      const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
+
+    orderedTransactions.forEach(t => {
+      const type = t.type.toLowerCase();
+      const current = positionsAtSale.get(t.asset_id) ?? { quantity: 0, avgPrice: fallbackAvgPriceMap.get(t.asset_id) ?? 0 };
+      if (type === 'compra' || type === 'buy') {
+        const newQty = current.quantity + t.quantity;
+        const avgPrice = newQty > 0
+          ? ((current.quantity * current.avgPrice) + (t.quantity * t.price)) / newQty
+          : t.price;
+        positionsAtSale.set(t.asset_id, { quantity: newQty, avgPrice });
+        return;
+      }
+
+      if (type !== 'venda' && type !== 'sell') return;
+
+      const avgPrice = current.avgPrice > 0 ? current.avgPrice : (fallbackAvgPriceMap.get(t.asset_id) ?? 0);
       if (avgPrice <= 0) return; // can't compute without cost basis
-      total += (t.price - avgPrice) * t.quantity - (t.fees || 0);
+      const profit = (t.price - avgPrice) * t.quantity - (t.fees || 0);
+      total += profit;
+      const ticker = tickerMap.get(t.asset_id) ?? '-';
+      saleDetails.push({
+        ticker,
+        date: t.date,
+        quantity: t.quantity,
+        sellPrice: t.price,
+        avgPrice,
+        profit,
+        tooltip: `Vendeu ${t.quantity} unidades de ${ticker} a ${formatBRL(t.price)} | PM: ${formatBRL(avgPrice)} | Lucro: ${formatBRL(profit)}`,
+      });
+      positionsAtSale.set(t.asset_id, { quantity: Math.max(0, current.quantity - t.quantity), avgPrice });
     });
 
     // Most recent sale
-    const sorted = [...sells].sort((a, b) => (a.date < b.date ? 1 : -1));
-    const last = sorted[0];
+    const last = [...saleDetails].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     const lastSale = last
       ? {
-          ticker: tickerMap.get(last.asset_id) ?? '-',
+          ticker: last.ticker,
           date: last.date,
+          tooltip: last.tooltip,
         }
       : null;
 
@@ -356,7 +385,7 @@ const Dashboard = () => {
       });
     }
 
-    return { total, count: sells.length, lastSale };
+    return { total, count: sells.length, lastSale, saleDetails };
   }, [effectiveTransactions, portfolio, rawPositions, assetTickers]);
   const realizedProfit = realizedStats.total;
 
