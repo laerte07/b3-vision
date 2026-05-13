@@ -425,7 +425,7 @@ const Dashboard = () => {
 
   // Smart insights with context
   const insights = useMemo(() => {
-    const items: { icon: React.ElementType; label: string; value: string; detail: string; context: string; color: string }[] = [];
+    const items: { icon: React.ElementType; label: string; value: string; detail: string; context: string; color: string; tooltip?: string }[] = [];
 
     if (topAsset) {
       const concentrationLevel = topAssetPct > 20 ? 'Concentração elevada' : topAssetPct > 10 ? 'Posição relevante' : 'Posição equilibrada';
@@ -462,6 +462,7 @@ const Dashboard = () => {
         detail,
         context,
         color: realizedProfit > 0 ? 'text-positive' : realizedProfit < 0 ? 'text-negative' : 'text-muted-foreground',
+        tooltip: lastSale?.tooltip,
       });
     }
 
