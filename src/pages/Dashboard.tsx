@@ -300,7 +300,7 @@ const Dashboard = () => {
     });
     const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
 
-    const sells = transactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const sells = effectiveTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
     let total = 0;
     sells.forEach(t => {
       const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
@@ -327,7 +327,7 @@ const Dashboard = () => {
     }
 
     return { total, count: sells.length, lastSale };
-  }, [transactions, portfolio, rawPositions, assetTickers]);
+  }, [effectiveTransactions, portfolio, rawPositions, assetTickers]);
   const realizedProfit = realizedStats.total;
 
   // PnL latente total
@@ -411,12 +411,12 @@ const Dashboard = () => {
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
-    const { chartData } = buildUnifiedData('real', '12m', transactions, portfolio, benchmarkData);
+    const { chartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
     return chartData.map(pt => ({
       ...pt,
       label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
     }));
-  }, [benchmarkData, portfolio, transactions]);
+  }, [benchmarkData, portfolio, effectiveTransactions]);
 
   const displayedAssets = showAllAssets ? assetValues : assetValues.slice(0, 3);
   const hasMoreAssets = assetValues.length > 3;
