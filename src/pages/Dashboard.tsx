@@ -441,12 +441,34 @@ const Dashboard = () => {
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
-    const { chartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
-    return chartData.map(pt => ({
+    const portfolioSeries = buildMonthlyPortfolioValueSeries(effectiveTransactions, portfolio, historicalPrices, 12);
+    const { chartData: benchmarkChartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
+    const sortedBenchmarks = [...benchmarkChartData].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+    const benchmarkAt = (dateStr: string, key: 'cdi' | 'ibov') => {
+      let value: number | undefined;
+      for (const point of sortedBenchmarks) {
+        if (point.dateStr > dateStr) break;
+        const candidate = point[key];
+        if (candidate !== undefined) value = candidate;
+      }
+      return value;
+    };
+
+    if (import.meta.env.DEV) {
+      console.log('Portfolio value series:', portfolioSeries.portfolioValueSeries);
+      console.log('Return series:', portfolioSeries.returnSeries);
+    }
+
+    if (!portfolioSeries.hasData) return [];
+
+    return portfolioSeries.points.map(pt => ({
       ...pt,
+      cdi: benchmarkAt(pt.dateStr, 'cdi'),
+      ibov: benchmarkAt(pt.dateStr, 'ibov'),
       label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
     }));
-  }, [benchmarkData, portfolio, effectiveTransactions]);
+  }, [benchmarkData, portfolio, effectiveTransactions, historicalPrices]);
 
   const displayedAssets = showAllAssets ? assetValues : assetValues.slice(0, 3);
   const hasMoreAssets = assetValues.length > 3;
