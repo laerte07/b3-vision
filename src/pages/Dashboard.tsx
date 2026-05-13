@@ -605,7 +605,7 @@ const Dashboard = () => {
                       >
                         {pieData.map((_, i) => (<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />))}
                       </Pie>
-                      <Tooltip
+                      <RechartsTooltip
                         formatter={(value: number, name: string) => [formatBRL(value), name]}
                         contentStyle={{
                           backgroundColor: 'hsl(222 41% 6%)',
