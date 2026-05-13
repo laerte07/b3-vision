@@ -38,11 +38,12 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions } from '@/hooks/useContributions';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBenchmarkHistory } from '@/hooks/useBenchmarkHistory';
-import { buildUnifiedData } from '@/lib/return-engine';
+import { buildMonthlyPortfolioValueSeries, buildUnifiedData, type HistoricalPriceMap } from '@/lib/return-engine';
 import { formatBRL, formatPct } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 // ─── Chart colors ───────────────────────────────────────────
 const CHART_COLORS = [
