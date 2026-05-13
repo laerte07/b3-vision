@@ -138,6 +138,65 @@ const Dashboard = () => {
     },
   });
 
+  // ─── Contribution items (legacy fallback for sales/buys not in transactions) ─
+  // Some historical buys/sells were recorded only in contribution_items and never
+  // landed in the transactions table. We synthesize Transaction rows from them so
+  // both the Carteira chart and the Lucro Realizado card reflect the full history.
+  const { data: contributionItems = [] } = useQuery({
+    queryKey: ['contribution-items-all', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('contribution_items')
+        .select('asset_id, quantity, unit_price, amount, contributions!inner(user_id, contribution_date)')
+        .eq('contributions.user_id', user!.id);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({
+        asset_id: r.asset_id as string,
+        quantity: Number(r.quantity),
+        unit_price: Number(r.unit_price),
+        amount: Number(r.amount),
+        date: r.contributions?.contribution_date as string,
+      }));
+    },
+  });
+
+  // Merge transactions table with synthesized rows from contribution_items.
+  // Dedupe key: asset_id|date|type|qty|price (rounded) — avoids double-counting
+  // when a contribution wrote both a transaction row and an item row.
+  const effectiveTransactions = useMemo(() => {
+    const list: typeof transactions = [...transactions];
+    const key = (t: { asset_id: string; date: string; type: string; quantity: number; price: number }) =>
+      `${t.asset_id}|${t.date}|${t.type}|${t.quantity.toFixed(4)}|${t.price.toFixed(4)}`;
+    const seen = new Set(list.map(key));
+    contributionItems.forEach((it, idx) => {
+      if (!it.asset_id || !it.date || it.quantity <= 0) return;
+      const type = it.amount < 0 ? 'venda' : 'compra';
+      const synthetic = {
+        id: `ci-${idx}`,
+        asset_id: it.asset_id,
+        type,
+        date: it.date,
+        price: it.unit_price,
+        quantity: it.quantity,
+        fees: 0,
+      };
+      const k = key(synthetic);
+      if (seen.has(k)) return;
+      seen.add(k);
+      list.push(synthetic);
+    });
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    if (import.meta.env.DEV) {
+      console.log('[Dashboard] effectiveTransactions:', {
+        fromTable: transactions.length,
+        fromItems: contributionItems.length,
+        merged: list.length,
+      });
+    }
+    return list;
+  }, [transactions, contributionItems]);
+
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
   const { data: benchmarkData = [] } = useBenchmarkHistory(['CDI', 'IBOV'], startDate);
 
@@ -241,7 +300,7 @@ const Dashboard = () => {
     });
     const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
 
-    const sells = transactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const sells = effectiveTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
     let total = 0;
     sells.forEach(t => {
       const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
@@ -268,7 +327,7 @@ const Dashboard = () => {
     }
 
     return { total, count: sells.length, lastSale };
-  }, [transactions, portfolio, rawPositions, assetTickers]);
+  }, [effectiveTransactions, portfolio, rawPositions, assetTickers]);
   const realizedProfit = realizedStats.total;
 
   // PnL latente total
@@ -339,7 +398,7 @@ const Dashboard = () => {
           : realizedProfit < 0 ? 'Resultado negativo acumulado' : '';
       items.push({
         icon: Banknote,
-        label: 'Lucro Realizado',
+        label: realizedProfit < 0 ? 'Prejuízo Realizado' : 'Lucro Realizado',
         value: formatBRL(realizedProfit),
         detail,
         context,
@@ -352,12 +411,12 @@ const Dashboard = () => {
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
-    const { chartData } = buildUnifiedData('real', '12m', transactions, portfolio, benchmarkData);
+    const { chartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
     return chartData.map(pt => ({
       ...pt,
       label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
     }));
-  }, [benchmarkData, portfolio, transactions]);
+  }, [benchmarkData, portfolio, effectiveTransactions]);
 
   const displayedAssets = showAllAssets ? assetValues : assetValues.slice(0, 3);
   const hasMoreAssets = assetValues.length > 3;
