@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.brapi-lookup]
 verify_jwt = false
+
+[functions.brapi-history]
+verify_jwt = false
