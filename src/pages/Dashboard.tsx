@@ -580,7 +580,7 @@ const Dashboard = () => {
           </div>
         </div>
         <div className="p-5 pt-3">
-          {perfChartData.length > 2 ? (
+          {perfChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={340}>
               <AreaChart data={perfChartData} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                 <defs>
