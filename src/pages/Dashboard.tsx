@@ -201,6 +201,35 @@ const Dashboard = () => {
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
   const { data: benchmarkData = [] } = useBenchmarkHistory(['CDI', 'IBOV'], startDate);
 
+  const portfolioTickers = useMemo(
+    () => [...new Set(portfolio.filter((asset) => asset.quantity > 0).map((asset) => asset.ticker.toUpperCase()))],
+    [portfolio]
+  );
+
+  const { data: historicalPrices = {} } = useQuery({
+    queryKey: ['brapi-history', user?.id, portfolioTickers.join('|')],
+    enabled: !!user && portfolioTickers.length > 0,
+    staleTime: 1000 * 60 * 30,
+    queryFn: async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+
+      const { data, error } = await supabase.functions.invoke('brapi-history', {
+        headers: { Authorization: `Bearer ${token}` },
+        body: { tickers: portfolioTickers },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return (data?.prices ?? {}) as HistoricalPriceMap;
+    },
+  });
+
+  if (import.meta.env.DEV) {
+    console.log('Portfolio assets:', portfolio);
+    console.log('Historical prices fetched:', historicalPrices);
+  }
+
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
