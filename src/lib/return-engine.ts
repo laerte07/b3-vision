@@ -153,7 +153,8 @@ export function buildMonthlyPortfolioValueSeries(
       }
 
       if (quantity <= 0) continue;
-      const price = resolveHistoricalPrice(historicalPrices[asset.ticker], month.key, asset.avg_price || asset.last_price || 0);
+      const tickerKey = asset.ticker.toUpperCase();
+      const price = resolveHistoricalPrice(historicalPrices[tickerKey] ?? historicalPrices[asset.ticker], month.key, asset.avg_price || asset.last_price || 0);
       if (!Number.isFinite(price) || price <= 0) continue;
       value += quantity * price;
     }
