@@ -28,7 +28,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   BarChart, Bar,
 } from 'recharts';
@@ -38,11 +38,12 @@ import { useClassTargets } from '@/hooks/useClassTargets';
 import { useContributions } from '@/hooks/useContributions';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBenchmarkHistory } from '@/hooks/useBenchmarkHistory';
-import { buildUnifiedData } from '@/lib/return-engine';
+import { buildMonthlyPortfolioValueSeries, buildUnifiedData, type HistoricalPriceMap } from '@/lib/return-engine';
 import { formatBRL, formatPct } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 // ─── Chart colors ───────────────────────────────────────────
 const CHART_COLORS = [
@@ -200,6 +201,35 @@ const Dashboard = () => {
   const startDate = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }, []);
   const { data: benchmarkData = [] } = useBenchmarkHistory(['CDI', 'IBOV'], startDate);
 
+  const portfolioTickers = useMemo(
+    () => [...new Set(portfolio.filter((asset) => asset.quantity > 0).map((asset) => asset.ticker.toUpperCase()))],
+    [portfolio]
+  );
+
+  const { data: historicalPrices = {} } = useQuery({
+    queryKey: ['brapi-history', user?.id, portfolioTickers.join('|')],
+    enabled: !!user && portfolioTickers.length > 0,
+    staleTime: 1000 * 60 * 30,
+    queryFn: async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+
+      const { data, error } = await supabase.functions.invoke('brapi-history', {
+        headers: { Authorization: `Bearer ${token}` },
+        body: { tickers: portfolioTickers },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return (data?.prices ?? {}) as HistoricalPriceMap;
+    },
+  });
+
+  if (import.meta.env.DEV) {
+    console.log('Portfolio assets:', portfolio);
+    console.log('Historical prices fetched:', historicalPrices);
+  }
+
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -287,34 +317,63 @@ const Dashboard = () => {
 
   // ─── Realized profit from sales ───────────────────────────
   const realizedStats = useMemo(() => {
-    const avgPriceMap = new Map<string, number>();
+    const fallbackAvgPriceMap = new Map<string, number>();
     // Prefer raw positions (includes zeroed positions of fully-sold assets)
     rawPositions.forEach(p => {
-      if (p.avg_price > 0) avgPriceMap.set(p.asset_id, p.avg_price);
+      if (p.avg_price > 0) fallbackAvgPriceMap.set(p.asset_id, p.avg_price);
     });
     // Fallback: portfolio (active assets only)
     portfolio.forEach(p => {
-      if (!avgPriceMap.has(p.id) && p.avg_price > 0) {
-        avgPriceMap.set(p.id, p.avg_price);
+      if (!fallbackAvgPriceMap.has(p.id) && p.avg_price > 0) {
+        fallbackAvgPriceMap.set(p.id, p.avg_price);
       }
     });
     const tickerMap = new Map(assetTickers.map(a => [a.id, a.ticker]));
 
-    const sells = effectiveTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const orderedTransactions = [...effectiveTransactions].sort((a, b) => a.date.localeCompare(b.date));
+    const sells = orderedTransactions.filter(t => t.type === 'venda' || t.type === 'sell');
+    const positionsAtSale = new Map<string, { quantity: number; avgPrice: number }>();
+    const saleDetails: { ticker: string; date: string; quantity: number; sellPrice: number; avgPrice: number; profit: number; tooltip: string }[] = [];
     let total = 0;
-    sells.forEach(t => {
-      const avgPrice = avgPriceMap.get(t.asset_id) ?? 0;
+
+    orderedTransactions.forEach(t => {
+      const type = t.type.toLowerCase();
+      const current = positionsAtSale.get(t.asset_id) ?? { quantity: 0, avgPrice: fallbackAvgPriceMap.get(t.asset_id) ?? 0 };
+      if (type === 'compra' || type === 'buy') {
+        const newQty = current.quantity + t.quantity;
+        const avgPrice = newQty > 0
+          ? ((current.quantity * current.avgPrice) + (t.quantity * t.price)) / newQty
+          : t.price;
+        positionsAtSale.set(t.asset_id, { quantity: newQty, avgPrice });
+        return;
+      }
+
+      if (type !== 'venda' && type !== 'sell') return;
+
+      const avgPrice = current.avgPrice > 0 ? current.avgPrice : (fallbackAvgPriceMap.get(t.asset_id) ?? 0);
       if (avgPrice <= 0) return; // can't compute without cost basis
-      total += (t.price - avgPrice) * t.quantity - (t.fees || 0);
+      const profit = (t.price - avgPrice) * t.quantity - (t.fees || 0);
+      total += profit;
+      const ticker = tickerMap.get(t.asset_id) ?? '-';
+      saleDetails.push({
+        ticker,
+        date: t.date,
+        quantity: t.quantity,
+        sellPrice: t.price,
+        avgPrice,
+        profit,
+        tooltip: `Vendeu ${t.quantity} unidades de ${ticker} a ${formatBRL(t.price)} | PM: ${formatBRL(avgPrice)} | Lucro: ${formatBRL(profit)}`,
+      });
+      positionsAtSale.set(t.asset_id, { quantity: Math.max(0, current.quantity - t.quantity), avgPrice });
     });
 
     // Most recent sale
-    const sorted = [...sells].sort((a, b) => (a.date < b.date ? 1 : -1));
-    const last = sorted[0];
+    const last = [...saleDetails].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     const lastSale = last
       ? {
-          ticker: tickerMap.get(last.asset_id) ?? '-',
+          ticker: last.ticker,
           date: last.date,
+          tooltip: last.tooltip,
         }
       : null;
 
@@ -326,7 +385,7 @@ const Dashboard = () => {
       });
     }
 
-    return { total, count: sells.length, lastSale };
+    return { total, count: sells.length, lastSale, saleDetails };
   }, [effectiveTransactions, portfolio, rawPositions, assetTickers]);
   const realizedProfit = realizedStats.total;
 
@@ -366,7 +425,7 @@ const Dashboard = () => {
 
   // Smart insights with context
   const insights = useMemo(() => {
-    const items: { icon: React.ElementType; label: string; value: string; detail: string; context: string; color: string }[] = [];
+    const items: { icon: React.ElementType; label: string; value: string; detail: string; context: string; color: string; tooltip?: string }[] = [];
 
     if (topAsset) {
       const concentrationLevel = topAssetPct > 20 ? 'Concentração elevada' : topAssetPct > 10 ? 'Posição relevante' : 'Posição equilibrada';
@@ -403,6 +462,7 @@ const Dashboard = () => {
         detail,
         context,
         color: realizedProfit > 0 ? 'text-positive' : realizedProfit < 0 ? 'text-negative' : 'text-muted-foreground',
+        tooltip: lastSale?.tooltip,
       });
     }
 
@@ -411,12 +471,34 @@ const Dashboard = () => {
 
   // ─── Performance chart data ─
   const perfChartData = useMemo(() => {
-    const { chartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
-    return chartData.map(pt => ({
+    const portfolioSeries = buildMonthlyPortfolioValueSeries(effectiveTransactions, portfolio, historicalPrices, 12);
+    const { chartData: benchmarkChartData } = buildUnifiedData('real', '12m', effectiveTransactions, portfolio, benchmarkData);
+    const sortedBenchmarks = [...benchmarkChartData].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+    const benchmarkAt = (dateStr: string, key: 'cdi' | 'ibov') => {
+      let value: number | undefined;
+      for (const point of sortedBenchmarks) {
+        if (point.dateStr > dateStr) break;
+        const candidate = point[key];
+        if (candidate !== undefined) value = candidate;
+      }
+      return value;
+    };
+
+    if (import.meta.env.DEV) {
+      console.log('Portfolio value series:', portfolioSeries.portfolioValueSeries);
+      console.log('Return series:', portfolioSeries.returnSeries);
+    }
+
+    if (!portfolioSeries.hasData) return [];
+
+    return portfolioSeries.points.map(pt => ({
       ...pt,
+      cdi: benchmarkAt(pt.dateStr, 'cdi'),
+      ibov: benchmarkAt(pt.dateStr, 'ibov'),
       label: pt.label || pt.dateStr.slice(5).replace('-', '/'),
     }));
-  }, [benchmarkData, portfolio, effectiveTransactions]);
+  }, [benchmarkData, portfolio, effectiveTransactions, historicalPrices]);
 
   const displayedAssets = showAllAssets ? assetValues : assetValues.slice(0, 3);
   const hasMoreAssets = assetValues.length > 3;
@@ -498,7 +580,7 @@ const Dashboard = () => {
           </div>
         </div>
         <div className="p-5 pt-3">
-          {perfChartData.length > 2 ? (
+          {perfChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={340}>
               <AreaChart data={perfChartData} margin={{ top: 5, right: 5, bottom: 0, left: -10 }}>
                 <defs>
@@ -546,27 +628,38 @@ const Dashboard = () => {
           <Zap className="h-3.5 w-3.5 text-primary" />
           <h2 className="text-sm font-semibold tracking-tight">Insights Inteligentes</h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {insights.map((ins) => (
-            <motion.div
-              key={ins.label}
-              whileHover={{ y: -3, scale: 1.01, transition: { duration: 0.2 } }}
-              className="group relative rounded-xl border border-border/30 bg-card/50 backdrop-blur-sm p-4 transition-all duration-300 hover:border-border/60 hover:bg-card/80 hover:shadow-[0_4px_32px_-8px_hsl(222_47%_3%/0.5)]"
-            >
-              <div className="flex items-center gap-2 mb-2.5">
-                <div className="p-1 rounded-md bg-muted/40">
-                  <ins.icon className={cn('h-3.5 w-3.5', ins.color)} />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.1em]">{ins.label}</span>
-              </div>
-              <p className="text-base font-bold font-mono tracking-tight">{ins.value}</p>
-              <p className={cn('text-xs font-mono mt-0.5', ins.color)}>{ins.detail}</p>
-              {ins.context && (
-                <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity duration-300">{ins.context}</p>
-              )}
-            </motion.div>
-          ))}
-        </div>
+        <TooltipProvider delayDuration={150}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {insights.map((ins) => {
+              const card = (
+                <motion.div
+                  key={ins.label}
+                  whileHover={{ y: -3, scale: 1.01, transition: { duration: 0.2 } }}
+                  className="group relative rounded-xl border border-border/30 bg-card/50 backdrop-blur-sm p-4 transition-all duration-300 hover:border-border/60 hover:bg-card/80 hover:shadow-[0_4px_32px_-8px_hsl(222_47%_3%/0.5)]"
+                >
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="p-1 rounded-md bg-muted/40">
+                      <ins.icon className={cn('h-3.5 w-3.5', ins.color)} />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.1em]">{ins.label}</span>
+                  </div>
+                  <p className="text-base font-bold font-mono tracking-tight">{ins.value}</p>
+                  <p className={cn('text-xs font-mono mt-0.5', ins.color)}>{ins.detail}</p>
+                  {ins.context && (
+                    <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity duration-300">{ins.context}</p>
+                  )}
+                </motion.div>
+              );
+
+              return ins.tooltip ? (
+                <Tooltip key={ins.label}>
+                  <TooltipTrigger asChild>{card}</TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-relaxed">{ins.tooltip}</TooltipContent>
+                </Tooltip>
+              ) : card;
+            })}
+          </div>
+        </TooltipProvider>
       </motion.div>
 
       {/* ══ STRATEGIC CORE: Allocation + Income + Contributions ══ */}
@@ -604,7 +697,7 @@ const Dashboard = () => {
                       >
                         {pieData.map((_, i) => (<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />))}
                       </Pie>
-                      <Tooltip
+                      <RechartsTooltip
                         formatter={(value: number, name: string) => [formatBRL(value), name]}
                         contentStyle={{
                           backgroundColor: 'hsl(222 41% 6%)',
