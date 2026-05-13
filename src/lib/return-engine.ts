@@ -29,6 +29,15 @@ export interface UnifiedResult {
   hasCarteiraData: boolean;
 }
 
+export type HistoricalPriceMap = Record<string, Record<string, number>>;
+
+export interface MonthlyPortfolioSeriesResult {
+  points: UnifiedChartPoint[];
+  hasData: boolean;
+  portfolioValueSeries: { month: string; dateStr: string; value: number }[];
+  returnSeries: { month: string; dateStr: string; carteira: number }[];
+}
+
 // ─── Constants ──────────────────────────────────────────────
 export const ALL_SERIES: SeriesDef[] = [
   { key: 'carteira', label: 'Carteira', color: 'hsl(43, 85%, 55%)' },
@@ -75,6 +84,106 @@ export function getPeriodMonths(period: PeriodKey, transactions: Transaction[]):
   }
   const monthsMap: Record<string, number> = { '6m': 6, '12m': 12, '24m': 24, '60m': 60 };
   return monthsMap[period] ?? 12;
+}
+
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthEndDate(year: number, month: number, now: Date): Date {
+  const end = new Date(year, month + 1, 0);
+  end.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return end > today ? today : end;
+}
+
+function resolveHistoricalPrice(prices: Record<string, number> | undefined, key: string, fallback: number): number {
+  if (prices?.[key] != null && prices[key] > 0) return prices[key];
+  const ordered = Object.entries(prices ?? {})
+    .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const previous = [...ordered].reverse().find(([k]) => k <= key)?.[1];
+  if (previous != null) return previous;
+  const next = ordered.find(([k]) => k >= key)?.[1];
+  return next ?? fallback;
+}
+
+export function buildMonthlyPortfolioValueSeries(
+  transactions: Transaction[],
+  portfolio: PortfolioAsset[],
+  historicalPrices: HistoricalPriceMap,
+  monthsBack = 12,
+  now = new Date(),
+): MonthlyPortfolioSeriesResult {
+  const activeAssets = portfolio.filter((asset) => asset.quantity > 0);
+  const txByAsset = new Map<string, Transaction[]>();
+  transactions.forEach((tx) => {
+    const list = txByAsset.get(tx.asset_id) ?? [];
+    list.push(tx);
+    txByAsset.set(tx.asset_id, list);
+  });
+  txByAsset.forEach((list) => list.sort((a, b) => a.date.localeCompare(b.date)));
+
+  const months: { key: string; dateStr: string; label: string; cutoff: string }[] = [];
+  for (let i = monthsBack; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = monthEndDate(d.getFullYear(), d.getMonth(), now);
+    months.push({
+      key: monthKey(d),
+      dateStr: toDateStr(end),
+      cutoff: toDateStr(end),
+      label: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''),
+    });
+  }
+
+  const portfolioValueSeries = months.map((month) => {
+    let value = 0;
+    for (const asset of activeAssets) {
+      const txs = txByAsset.get(asset.id) ?? [];
+      const hasBuyHistory = txs.some((tx) => tx.type === 'compra' || tx.type === 'buy');
+      let quantity = hasBuyHistory ? 0 : asset.quantity;
+
+      if (hasBuyHistory) {
+        for (const tx of txs) {
+          if (tx.date > month.cutoff) break;
+          if (tx.type === 'compra' || tx.type === 'buy') quantity += tx.quantity;
+          if (tx.type === 'venda' || tx.type === 'sell') quantity -= tx.quantity;
+        }
+      }
+
+      if (quantity <= 0) continue;
+      const price = resolveHistoricalPrice(historicalPrices[asset.ticker], month.key, asset.avg_price || asset.last_price || 0);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      value += quantity * price;
+    }
+    return { month: month.key, dateStr: month.dateStr, value };
+  });
+
+  const baseIndex = portfolioValueSeries.findIndex((point) => point.value > 0);
+  if (baseIndex < 0) {
+    if (import.meta.env.DEV) console.error('[PortfolioPerformance] Dados insuficientes: baseValue zero/null', portfolioValueSeries);
+    return { points: [], hasData: false, portfolioValueSeries, returnSeries: [] };
+  }
+
+  const baseValue = portfolioValueSeries[baseIndex].value;
+  if (!Number.isFinite(baseValue) || baseValue <= 0) {
+    if (import.meta.env.DEV) console.error('[PortfolioPerformance] Dados insuficientes: baseValue inválido', baseValue);
+    return { points: [], hasData: false, portfolioValueSeries, returnSeries: [] };
+  }
+
+  const returnSeries = portfolioValueSeries.slice(baseIndex).map((point) => ({
+    month: point.month,
+    dateStr: point.dateStr,
+    carteira: +(((point.value - baseValue) / baseValue) * 100).toFixed(2),
+  }));
+
+  const points = returnSeries.map((point) => {
+    const month = months.find((m) => m.key === point.month);
+    return { dateStr: point.dateStr, label: month?.label ?? point.month.slice(5), carteira: point.carteira };
+  });
+
+  return { points, hasData: true, portfolioValueSeries, returnSeries };
 }
 
 /**
