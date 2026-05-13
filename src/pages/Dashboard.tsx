@@ -628,27 +628,38 @@ const Dashboard = () => {
           <Zap className="h-3.5 w-3.5 text-primary" />
           <h2 className="text-sm font-semibold tracking-tight">Insights Inteligentes</h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {insights.map((ins) => (
-            <motion.div
-              key={ins.label}
-              whileHover={{ y: -3, scale: 1.01, transition: { duration: 0.2 } }}
-              className="group relative rounded-xl border border-border/30 bg-card/50 backdrop-blur-sm p-4 transition-all duration-300 hover:border-border/60 hover:bg-card/80 hover:shadow-[0_4px_32px_-8px_hsl(222_47%_3%/0.5)]"
-            >
-              <div className="flex items-center gap-2 mb-2.5">
-                <div className="p-1 rounded-md bg-muted/40">
-                  <ins.icon className={cn('h-3.5 w-3.5', ins.color)} />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.1em]">{ins.label}</span>
-              </div>
-              <p className="text-base font-bold font-mono tracking-tight">{ins.value}</p>
-              <p className={cn('text-xs font-mono mt-0.5', ins.color)}>{ins.detail}</p>
-              {ins.context && (
-                <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity duration-300">{ins.context}</p>
-              )}
-            </motion.div>
-          ))}
-        </div>
+        <TooltipProvider delayDuration={150}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {insights.map((ins) => {
+              const card = (
+                <motion.div
+                  key={ins.label}
+                  whileHover={{ y: -3, scale: 1.01, transition: { duration: 0.2 } }}
+                  className="group relative rounded-xl border border-border/30 bg-card/50 backdrop-blur-sm p-4 transition-all duration-300 hover:border-border/60 hover:bg-card/80 hover:shadow-[0_4px_32px_-8px_hsl(222_47%_3%/0.5)]"
+                >
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <div className="p-1 rounded-md bg-muted/40">
+                      <ins.icon className={cn('h-3.5 w-3.5', ins.color)} />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.1em]">{ins.label}</span>
+                  </div>
+                  <p className="text-base font-bold font-mono tracking-tight">{ins.value}</p>
+                  <p className={cn('text-xs font-mono mt-0.5', ins.color)}>{ins.detail}</p>
+                  {ins.context && (
+                    <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity duration-300">{ins.context}</p>
+                  )}
+                </motion.div>
+              );
+
+              return ins.tooltip ? (
+                <Tooltip key={ins.label}>
+                  <TooltipTrigger asChild>{card}</TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-relaxed">{ins.tooltip}</TooltipContent>
+                </Tooltip>
+              ) : card;
+            })}
+          </div>
+        </TooltipProvider>
       </motion.div>
 
       {/* ══ STRATEGIC CORE: Allocation + Income + Contributions ══ */}
