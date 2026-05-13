@@ -398,7 +398,7 @@ const Dashboard = () => {
           : realizedProfit < 0 ? 'Resultado negativo acumulado' : '';
       items.push({
         icon: Banknote,
-        label: 'Lucro Realizado',
+        label: realizedProfit < 0 ? 'Prejuízo Realizado' : 'Lucro Realizado',
         value: formatBRL(realizedProfit),
         detail,
         context,
