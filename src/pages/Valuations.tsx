@@ -497,6 +497,8 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   }>({});
   const { asset, fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
+  const { setField: setOverrideField } = useFundamentalsOverride(asset?.id);
+  const refreshMarket = useRefreshMarket();
 
   // Header KPI values
   const price = fd?.price.value ?? 0;
@@ -615,6 +617,17 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         <div className="min-w-[260px] flex-1 max-w-md">
           <AssetSelector value={ticker} onChange={t => { setTicker(t); setManuals({}); }} />
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={!ticker || refreshMarket.isPending}
+          onClick={() => refreshMarket.mutate()}
+          title="Buscar fundamentos atualizados na API (inclui ativos em observação)"
+        >
+          {refreshMarket.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Buscar dados (API)
+        </Button>
         {statusContent && <div className="flex-1 min-w-[260px]">{statusContent}</div>}
       </div>
 
@@ -623,8 +636,8 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         <KpiCell label="Preço Atual (R$)" value={HEADER_KPIS[0].fmt(price)} loading={isLoading} />
         <KpiCell label="Nº Total de Ações" value={HEADER_KPIS[1].fmt(shares)} loading={isLoading} />
         <KpiCell label="Market Cap (R$)" value={HEADER_KPIS[2].fmt(mktcap)} loading={isLoading} />
-        <KpiCell label="Payout (%)" value={HEADER_KPIS[3].fmt(apiPayout)} loading={isLoading} />
-        <KpiCell label="ROE (%)" value={HEADER_KPIS[4].fmt(apiRoe)} loading={isLoading} />
+        <KpiCell label="Payout (%)" value={HEADER_KPIS[3].fmt(payout)} loading={isLoading} />
+        <KpiCell label="ROE (%)" value={HEADER_KPIS[4].fmt(roe)} loading={isLoading} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -633,8 +646,40 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-base">Premissas</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <FieldRow label="Payout médio (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} step="0.5" sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
-              <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} step="0.5" sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
+              <FieldRow
+                label="Nº Total de Ações"
+                value={shares}
+                step="1"
+                onChange={v => {
+                  const num = +v;
+                  setManuals(p => ({ ...p, shares: num }));
+                  if (asset?.id && Number.isFinite(num) && num > 0) setOverrideField('total_shares', num);
+                }}
+                sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
+                hint={fd?.total_shares.source === 'nd' ? 'Não retornado pela API — preencha manualmente' : undefined}
+              />
+              <FieldRow
+                label="Payout médio (%)"
+                value={payout}
+                step="0.5"
+                onChange={v => {
+                  const num = +v;
+                  setManuals(p => ({ ...p, payout: num }));
+                  if (asset?.id && Number.isFinite(num)) setOverrideField('payout', num);
+                }}
+                sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout}
+              />
+              <FieldRow
+                label="ROE (%)"
+                value={roe}
+                step="0.5"
+                onChange={v => {
+                  const num = +v;
+                  setManuals(p => ({ ...p, roe: num }));
+                  if (asset?.id && Number.isFinite(num)) setOverrideField('roe', num);
+                }}
+                sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe}
+              />
               <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
               <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
               <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
