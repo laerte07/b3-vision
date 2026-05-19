@@ -77,8 +77,12 @@ export function buildFinancialData(asset: PortfolioAsset): FinancialData {
   const margin = get('margin', f?.margin);
   const revenue_growth = get('revenue_growth', f?.revenue_growth);
 
-  // Total shares — special: from API, never from override directly
+  // Total shares — manual override has priority over API
   const total_shares = (() => {
+    const manual = ov.total_shares;
+    if (manual != null && typeof manual === 'number' && Number.isFinite(manual) && manual > 0) {
+      return sv(manual, 'manual');
+    }
     const ts = f?.total_shares;
     if (ts != null && Number.isFinite(ts) && ts > 0) return sv(ts, 'api');
     return ZERO;
