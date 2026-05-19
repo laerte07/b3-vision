@@ -18,6 +18,7 @@ export interface OverrideJson {
   market_cap?: number | null;
   net_income_ttm?: number | null;
   equity?: number | null;
+  total_shares?: number | null;
   margin?: number | null;
   revenue_growth?: number | null;
   net_income_years?: Record<string, number | null>;
