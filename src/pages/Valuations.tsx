@@ -583,6 +583,12 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
       toast.error('Preço justo inválido — preencha Lucro Base e Total de Ações.');
       return;
     }
+    // Persist manual fundamentals as overrides so they win over API next time
+    if (asset?.id) {
+      if (manuals.shares != null && Number.isFinite(manuals.shares) && manuals.shares > 0) setOverrideField('total_shares', manuals.shares);
+      if (manuals.payout != null && Number.isFinite(manuals.payout)) setOverrideField('payout', manuals.payout);
+      if (manuals.roe != null && Number.isFinite(manuals.roe)) setOverrideField('roe', manuals.roe);
+    }
     const origem = manuals.historicals != null || manuals.shares != null ? 'manual' : 'fundamentos';
     const incomplete = (fd?.net_income.source === 'nd') || (fd?.total_shares.source === 'nd');
     save(
