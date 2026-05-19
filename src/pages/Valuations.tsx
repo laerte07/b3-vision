@@ -650,36 +650,12 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
                 label="Nº Total de Ações"
                 value={shares}
                 step="1"
-                onChange={v => {
-                  const num = +v;
-                  setManuals(p => ({ ...p, shares: num }));
-                  if (asset?.id && Number.isFinite(num) && num > 0) setOverrideField('total_shares', num);
-                }}
+                onChange={v => setManuals(p => ({ ...p, shares: +v }))}
                 sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
                 hint={fd?.total_shares.source === 'nd' ? 'Não retornado pela API — preencha manualmente' : undefined}
               />
-              <FieldRow
-                label="Payout médio (%)"
-                value={payout}
-                step="0.5"
-                onChange={v => {
-                  const num = +v;
-                  setManuals(p => ({ ...p, payout: num }));
-                  if (asset?.id && Number.isFinite(num)) setOverrideField('payout', num);
-                }}
-                sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout}
-              />
-              <FieldRow
-                label="ROE (%)"
-                value={roe}
-                step="0.5"
-                onChange={v => {
-                  const num = +v;
-                  setManuals(p => ({ ...p, roe: num }));
-                  if (asset?.id && Number.isFinite(num)) setOverrideField('roe', num);
-                }}
-                sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe}
-              />
+              <FieldRow label="Payout médio (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} step="0.5" sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
+              <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} step="0.5" sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
               <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
               <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
               <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
