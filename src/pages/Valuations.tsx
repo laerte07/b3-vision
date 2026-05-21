@@ -195,6 +195,7 @@ const useSaveValuation = () => {
   const { user } = useAuth();
   const { data: portfolio = [] } = usePortfolio();
   const { data: watchlist = [] } = useWatchlist();
+  const qc = useQueryClient();
   return async (ticker: string, modelType: string, params: Record<string, any>, fairValue: number, maxBuyPrice: number, currentPrice: number) => {
     if (!user) return;
     const upper = ticker.toUpperCase();
@@ -203,12 +204,18 @@ const useSaveValuation = () => {
       watchlist.find(a => a.ticker.toUpperCase() === upper);
     if (!asset) { toast.error(`Ativo ${ticker} não encontrado.`); return; }
     const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
+    if (import.meta.env.DEV) {
+      console.log('[ValuationSave]', { ticker: upper, method: modelType, fair_value: fairValue, max_buy_price: maxBuyPrice, upside, currentPrice });
+    }
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('valuation_models').upsert({ user_id: user.id, asset_id: asset.id, model_type: modelType, json_params: params }, { onConflict: 'user_id,asset_id,model_type' }),
       supabase.from('valuation_results').upsert({ user_id: user.id, asset_id: asset.id, model_type: modelType, fair_value: fairValue, upside, max_buy_price: maxBuyPrice, json_breakdown: params }, { onConflict: 'user_id,asset_id,model_type' }),
     ]);
     if (e1 || e2) toast.error((e1 || e2)!.message);
-    else toast.success(`Valuation ${modelType} salvo para ${ticker}`);
+    else {
+      qc.invalidateQueries({ queryKey: ['saved-valuations'] });
+      toast.success(`Valuation ${modelType} salvo para ${ticker}`);
+    }
   };
 };
 
