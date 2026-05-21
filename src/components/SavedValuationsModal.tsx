@@ -484,19 +484,34 @@ const CompareView = ({ rows, topScore, onOpen }: {
                   <TableCell className="text-right font-mono">
                     {r.current_price !== null ? formatBRL(r.current_price) : '—'}
                   </TableCell>
-                  {MODEL_KEYS.map(k => {
-                    const v = r.byModel[k];
-                    const fair = v?.max_buy_price ?? v?.fair_value ?? null;
-                    const isBest = r.bestModel === k;
-                    return (
-                      <TableCell
-                        key={k}
-                        className={`text-right font-mono text-xs ${isBest ? 'text-emerald-600 font-bold bg-emerald-500/5' : ''}`}
-                      >
-                        {fair !== null ? formatBRL(fair) : '—'}
-                      </TableCell>
-                    );
-                  })}
+                   {MODEL_KEYS.map(k => {
+                     const v = r.byModel[k];
+                     // Canonical: always show fair_value (preço justo). Fallback to max_buy_price only for legacy rows.
+                     const raw_fair_value = v?.fair_value ?? null;
+                     const raw_max_buy_price = v?.max_buy_price ?? null;
+                     const fair = raw_fair_value ?? raw_max_buy_price;
+                     if (import.meta.env.DEV && v) {
+                       console.log('[ValuationCompareDebug]', {
+                         ticker: r.ticker,
+                         valuation_type: k,
+                         created_at: v.created_at,
+                         updated_at: v.updated_at,
+                         raw_fair_value,
+                         raw_max_buy_price,
+                         normalized_fair_value: fair,
+                         displayed_value: fair,
+                       });
+                     }
+                     const isBest = r.bestModel === k;
+                     return (
+                       <TableCell
+                         key={k}
+                         className={`text-right font-mono text-xs ${isBest ? 'text-emerald-600 font-bold bg-emerald-500/5' : ''}`}
+                       >
+                         {fair !== null ? formatBRL(fair) : '—'}
+                       </TableCell>
+                     );
+                   })}
                   <TableCell className={`text-right font-mono ${(r.avgUpside ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                     {r.avgUpside !== null ? (
                       <span className="inline-flex items-center gap-0.5">
