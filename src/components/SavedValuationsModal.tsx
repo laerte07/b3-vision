@@ -121,6 +121,10 @@ const ValuationCard = ({ v, onOpen, onDelete }: {
           <div className="font-mono">{v.current_price !== null ? formatBRL(v.current_price) : '—'}</div>
         </div>
         <div>
+          <div className="text-[10px] text-muted-foreground uppercase">Preço justo</div>
+          <div className="font-mono">{v.fair_value !== null ? formatBRL(v.fair_value) : '—'}</div>
+        </div>
+        <div>
           <div className="text-[10px] text-muted-foreground uppercase">Preço teto</div>
           <div className="font-mono">{v.max_buy_price !== null ? formatBRL(v.max_buy_price) : '—'}</div>
         </div>
