@@ -432,11 +432,11 @@ const CompareView = ({ rows, topScore, onOpen }: {
 }) => {
   return (
     <>
-      <div className="hidden md:block rounded-lg border border-border overflow-x-auto">
+      <div className="hidden md:block rounded-lg border border-border overflow-auto max-h-[65vh]">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
-              <TableHead className="sticky left-0 bg-card">Ativo</TableHead>
+              <TableHead className="sticky left-0 bg-card z-20">Ativo</TableHead>
               <TableHead className="text-right">Preço atual</TableHead>
               {MODEL_KEYS.map(k => (
                 <TableHead key={k} className="text-right whitespace-nowrap text-[11px]">
