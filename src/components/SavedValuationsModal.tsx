@@ -219,7 +219,7 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] md:max-w-6xl p-0 gap-0 max-h-[90vh] flex flex-col">
+      <DialogContent className="w-[96vw] max-w-[1400px] p-0 gap-0 h-[92vh] max-h-[92vh] flex flex-col overflow-hidden">
         <DialogHeader className="p-4 md:p-6 border-b border-border">
           <DialogTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" /> Meus Valuations
@@ -254,9 +254,9 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
         </div>
 
         {view === 'list' ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <div className="px-4 md:px-6 pt-3 border-b border-border">
-              <ScrollArea className="w-full">
+              <div className="w-full overflow-x-auto">
                 <TabsList className="flex w-max h-auto gap-1 bg-muted/50 p-1">
                   {MODEL_KEYS.map(k => (
                     <TabsTrigger key={k} value={k} className="whitespace-nowrap text-xs">
@@ -267,7 +267,7 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
                     </TabsTrigger>
                   ))}
                 </TabsList>
-              </ScrollArea>
+              </div>
             </div>
 
             <div className="px-4 md:px-6 py-3 flex flex-col md:flex-row gap-2 md:items-center border-b border-border">
@@ -298,7 +298,7 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
               </Select>
             </div>
 
-            <ScrollArea className="flex-1">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               {MODEL_KEYS.map(k => (
                 <TabsContent key={k} value={k} className="m-0 p-4 md:p-6">
                   {isLoading ? (
@@ -311,14 +311,15 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
                     } />
                   ) : (
                     <>
-                      <div className="hidden md:block rounded-lg border border-border overflow-hidden">
+                      <div className="hidden md:block rounded-lg border border-border overflow-x-auto">
                         <Table>
-                          <TableHeader>
+                          <TableHeader className="sticky top-0 bg-card z-10">
                             <TableRow>
                               <TableHead>Ticker</TableHead>
                               <TableHead>Empresa</TableHead>
                               <TableHead className="text-right">Preço atual</TableHead>
                               <TableHead className="text-right">DY</TableHead>
+                              <TableHead className="text-right">Preço justo</TableHead>
                               <TableHead className="text-right">Preço teto</TableHead>
                               <TableHead className="text-right">Upside</TableHead>
                               <TableHead>Status</TableHead>
@@ -352,10 +353,10 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
                   )}
                 </TabsContent>
               ))}
-            </ScrollArea>
+            </div>
           </Tabs>
         ) : (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <div className="px-4 md:px-6 py-3 border-b border-border">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -367,7 +368,7 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
                 />
               </div>
             </div>
-            <ScrollArea className="flex-1">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="p-4 md:p-6 space-y-4">
                 {isLoading ? (
                   <EmptyState msg="Carregando comparativo..." />
@@ -393,7 +394,7 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
                   </>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           </div>
         )}
       </DialogContent>
