@@ -1,11 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -64,6 +63,7 @@ const ValuationRow = ({ v, onOpen, onDelete }: {
       <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{v.name || '—'}</TableCell>
       <TableCell className="font-mono text-right">{v.current_price !== null ? formatBRL(v.current_price) : '—'}</TableCell>
       <TableCell className="font-mono text-right">{v.dividend_yield !== null ? formatPct(v.dividend_yield * 100) : '—'}</TableCell>
+      <TableCell className="font-mono text-right">{v.fair_value !== null ? formatBRL(v.fair_value) : '—'}</TableCell>
       <TableCell className="font-mono text-right">{v.max_buy_price !== null ? formatBRL(v.max_buy_price) : '—'}</TableCell>
       <TableCell className={`font-mono text-right ${upsideColor}`}>
         {v.upside !== null ? `${v.upside >= 0 ? '+' : ''}${formatPct(v.upside)}` : '—'}
