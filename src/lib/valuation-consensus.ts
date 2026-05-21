@@ -70,7 +70,8 @@ export const buildConsensus = (valuations: SavedValuation[], allModelKeys: strin
     for (const m of allModelKeys) {
       const v = byModel[m];
       if (!v) continue;
-      const fair = v.max_buy_price ?? v.fair_value;
+      // Use fair_value (preço justo) as canonical; fall back to max_buy_price (preço teto) for legacy rows.
+      const fair = v.fair_value ?? v.max_buy_price;
       if (fair === null || !Number.isFinite(fair) || fair <= 0) continue;
       fairValues.push({ model: m, fair, upside: v.upside });
     }
