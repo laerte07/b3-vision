@@ -179,6 +179,19 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
   const [sort, setSort] = useState<SortMode>('recent');
 
   const consensus = useMemo(() => buildConsensus(valuations, MODEL_KEYS), [valuations]);
+
+  useEffect(() => {
+    if (!open || !import.meta.env.DEV) return;
+    valuations.forEach(v => {
+      console.log('[ValuationModalRead]', {
+        ticker: v.ticker,
+        method: v.model_type,
+        fair_value_from_db: v.fair_value,
+        max_buy_price_from_db: v.max_buy_price,
+        upside_from_db: v.upside,
+      });
+    });
+  }, [open, valuations]);
   const filteredConsensus = useMemo(() => {
     let list = consensus;
     if (search.trim()) {
