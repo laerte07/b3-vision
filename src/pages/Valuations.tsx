@@ -510,6 +510,8 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const save = useSaveValuation();
   const { setField: setOverrideField } = useFundamentalsOverride(asset?.id);
   const refreshMarket = useRefreshMarket();
+  const { isAdmin } = useIsAdmin();
+  const [showDebug, setShowDebug] = useState(false);
 
   // Header KPI values
   const price = fd?.price.value ?? 0;
