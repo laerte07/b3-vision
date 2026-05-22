@@ -18,6 +18,9 @@ import { useWatchlist } from '@/hooks/useWatchlist';
 import { useRefreshMarket } from '@/hooks/usePortfolio';
 import { useFundamentalsOverride } from '@/hooks/useFundamentalsOverride';
 import { useAuth } from '@/hooks/useAuth';
+import { useIsAdmin } from '@/hooks/useProfile';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -507,6 +510,8 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const save = useSaveValuation();
   const { setField: setOverrideField } = useFundamentalsOverride(asset?.id);
   const refreshMarket = useRefreshMarket();
+  const { isAdmin } = useIsAdmin();
+  const [showDebug, setShowDebug] = useState(false);
 
   // Header KPI values
   const price = fd?.price.value ?? 0;
@@ -830,6 +835,74 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           </Card>
         </div>
       </div>
+
+      {/* MEMÓRIA DE CÁLCULO — admin only */}
+      {isAdmin && (() => {
+        const invalidFields: string[] = [];
+        if (!(baseNetIncome > 0)) invalidFields.push('lucro_base (≤ 0 ou ausente)');
+        if (!(shares > 0)) invalidFields.push('total_acoes (≤ 0 ou ausente)');
+        if (!(discount > 0)) invalidFields.push('taxa_desconto (≤ 0)');
+        if (!(discount / 100 > perpetuity / 100)) invalidFields.push('taxa_desconto deve ser > taxa_perpetua');
+        if (!Number.isFinite(fairPrice)) invalidFields.push('preco_justo (NaN/Infinito)');
+
+        const rows: Array<[string, React.ReactNode]> = [
+          ['Lucro base (R$)', formatBRL(baseNetIncome)],
+          ['Lucros projetados', <span className="font-mono text-[11px]">{projections.map(p => `${p.year}: ${formatBRL(p.profit)}`).join(' • ')}</span>],
+          ['Taxa de crescimento (%)', `${growth.toFixed(2)}%`],
+          ['Taxa de desconto (%)', `${discount.toFixed(2)}%`],
+          ['Taxa perpétua (%)', `${perpetuity.toFixed(2)}%`],
+          ['Lucro final usado no terminal', formatBRL(lastProfit)],
+          ['Valor terminal bruto', formatBRL(terminal)],
+          ['Fator de desconto do terminal', `(1 + ${discount.toFixed(2)}%)^${periodYears} = ${Math.pow(1 + r, periodYears).toFixed(4)}`],
+          ['Valor terminal presente (VP)', formatBRL(pvTerminal)],
+          ['VPL dos lucros anuais', formatBRL(pvProfits)],
+          ['Valor total projetado (empresa)', formatBRL(projMarketCap)],
+          ['Nº total de ações', shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'],
+          ['Preço justo por ação', fairPrice > 0 ? formatBRL(fairPrice) : '—'],
+        ];
+
+        return (
+          <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
+            <Collapsible open={showDebug} onOpenChange={setShowDebug}>
+              <CollapsibleTrigger asChild>
+                <button className="w-full flex items-center justify-between px-4 py-2 text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+                  <span className="flex items-center gap-2">
+                    <Info className="h-3.5 w-3.5" />
+                    Memória de Cálculo (admin) — VFF {periodYears} anos
+                    {invalidFields.length > 0 && (
+                      <Badge variant="destructive" className="text-[10px]">{invalidFields.length} alerta(s)</Badge>
+                    )}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showDebug ? 'rotate-180' : ''}`} />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="pt-0">
+                  {invalidFields.length > 0 && (
+                    <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
+                      <p className="font-medium mb-1">Campos inválidos detectados:</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {invalidFields.map(f => <li key={f}>{f}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="divide-y divide-border/50 text-sm">
+                    {rows.map(([label, value]) => (
+                      <div key={label} className="flex justify-between items-baseline py-1.5 gap-4">
+                        <span className="text-muted-foreground text-xs">{label}</span>
+                        <span className="font-mono text-right">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-[10px] text-muted-foreground italic">
+                    Fórmula: VT = LucroFinal × (1 + gPerp) / (r − gPerp) — descontado por (1 + r)^N. Preço justo = (VPL lucros + VP terminal) / nº de ações.
+                  </p>
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
+          </Card>
+        );
+      })()}
     </div>
   );
 };
