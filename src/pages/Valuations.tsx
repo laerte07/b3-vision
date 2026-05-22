@@ -504,7 +504,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const [manuals, setManuals] = useState<{
     payout?: number; roe?: number; growth?: number; discount?: number; perpetuity?: number;
     historicals?: Record<number, number | null>; projections?: Record<number, number>; growths?: Record<number, number>;
-    shares?: number; notes?: string;
+    shares?: number; notes?: string; safetyMargin?: number;
   }>({});
   const { asset, fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -527,6 +527,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const growth = manuals.growth ?? autoGrowth;
   const discount = manuals.discount ?? 15;
   const perpetuity = manuals.perpetuity ?? 3;
+  const safetyMargin = manuals.safetyMargin ?? 20;
 
   // Years arrays — historical = last 5 completed years; projections start at current year
   const currentYear = new Date().getFullYear();
@@ -581,7 +582,43 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const pvTerminal = terminal / Math.pow(1 + r, periodYears);
   const projMarketCap = pvProfits + pvTerminal;
   const fairPrice = shares > 0 ? projMarketCap / shares : 0;
+  const targetPrice = fairPrice > 0 ? fairPrice * (1 - safetyMargin / 100) : 0;
   const upside = price > 0 && fairPrice > 0 ? ((fairPrice - price) / price) * 100 : 0;
+  const upsideTarget = price > 0 && targetPrice > 0 ? ((targetPrice - price) / price) * 100 : 0;
+
+  // ----- Sensitivity matrix (vary discount ±1%, perpetuity ±0.5%) -----
+  const sensitivity = useMemo(() => {
+    const dDeltas = [-1, 0, 1];
+    const pDeltas = [-0.5, 0, 0.5];
+    return dDeltas.map(dd => pDeltas.map(pd => {
+      const r2 = (discount + dd) / 100;
+      const g2 = (perpetuity + pd) / 100;
+      if (!(r2 > g2) || lastProfit <= 0 || shares <= 0) return null;
+      const pv = projections.reduce((s, p, i) => s + p.profit / Math.pow(1 + r2, i + 1), 0);
+      const term = (lastProfit * (1 + g2)) / (r2 - g2);
+      const pvT = term / Math.pow(1 + r2, periodYears);
+      return (pv + pvT) / shares;
+    }));
+  }, [discount, perpetuity, projections, lastProfit, shares, periodYears]);
+
+  // ----- Scenarios: Conservador / Base / Otimista -----
+  const computeScenario = (gDelta: number, rDelta: number, perpDelta: number) => {
+    const g2 = Math.max(0, growth + gDelta);
+    const r2 = (discount + rDelta) / 100;
+    const gp2 = Math.max(0, (perpetuity + perpDelta)) / 100;
+    if (!(r2 > gp2) || baseNetIncome <= 0 || shares <= 0) return 0;
+    let prev = baseNetIncome;
+    const projs: number[] = [];
+    for (let i = 0; i < periodYears; i++) { prev = prev * (1 + g2 / 100); projs.push(prev); }
+    const pv = projs.reduce((s, p, i) => s + p / Math.pow(1 + r2, i + 1), 0);
+    const last = projs[projs.length - 1];
+    const term = (last * (1 + gp2)) / (r2 - gp2);
+    const pvT = term / Math.pow(1 + r2, periodYears);
+    return (pv + pvT) / shares;
+  };
+  const scenarioConservador = computeScenario(-2, +2, -1);
+  const scenarioBase = fairPrice;
+  const scenarioOtimista = computeScenario(+2, -2, +1);
 
   const isLoading = status === 'loading';
   const allWarnings = fd?.warnings ?? [];
@@ -609,6 +646,12 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
       `vff_${periodYears}`,
       {
         payout, roe, growth, discount, perpetuity, shares,
+        safety_margin: safetyMargin,
+        fair_value: fairPrice,
+        target_price: targetPrice,
+        current_price: price,
+        upside_to_fair_value: upside,
+        upside_to_target_price: upsideTarget,
         baseNetIncome,
         historicals: histYears.map(y => ({ year: y, profit: getHistorical(y) })),
         projections: projections.map(p => ({ year: p.year, profit: p.profit, growth: p.growthApplied })),
@@ -616,7 +659,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         origem_dados: origem,
       },
       fairPrice,
-      fairPrice * 0.75,
+      targetPrice,
       price,
     );
     if (incomplete) toast.warning('Dados incompletos — valuation baseado em input manual.');
