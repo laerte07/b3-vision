@@ -721,6 +721,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
               <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
               <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
               <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
+              <FieldRow label="Margem de Segurança (%)" value={safetyMargin} onChange={v => setManuals(p => ({ ...p, safetyMargin: +v }))} step="1" hint="Preço Teto = Preço Justo × (1 − Margem)" />
               <p className="text-[10px] text-muted-foreground italic">💡 Média histórica da Selic é 11,53% (9,80% ex IR15%)</p>
             </CardContent>
           </Card>
@@ -738,20 +739,34 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
               </div>
               <div className="border-t border-border pt-2.5 mt-2 space-y-2">
                 <div className="flex justify-between items-baseline">
-                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço por ação</span>
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço Justo</span>
                   <span className="font-mono font-bold text-xl text-primary">{fairPrice > 0 ? formatBRL(fairPrice) : '—'}</span>
                 </div>
                 <div className="flex justify-between items-baseline">
-                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Upside / Downside</span>
-                  <span className={`font-mono font-bold text-xl ${upside > 0 ? 'text-emerald-500' : upside < 0 ? 'text-red-500' : 'text-primary'}`}>
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço Teto <span className="opacity-70 normal-case">(MS {safetyMargin.toFixed(0)}%)</span></span>
+                  <span className="font-mono font-bold text-lg text-amber-500">{targetPrice > 0 ? formatBRL(targetPrice) : '—'}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Preço Atual</span>
+                  <span className="font-mono font-medium text-sm">{price > 0 ? formatBRL(price) : '—'}</span>
+                </div>
+                <div className="flex justify-between items-baseline pt-1">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Upside até Preço Justo</span>
+                  <span className={`font-mono font-bold ${upside > 0 ? 'text-emerald-500' : upside < 0 ? 'text-red-500' : 'text-primary'}`}>
                     {fairPrice > 0 && price > 0 ? `${upside > 0 ? '+' : ''}${upside.toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs uppercase tracking-wider text-muted-foreground">Distância até Preço Teto</span>
+                  <span className={`font-mono font-bold ${upsideTarget > 0 ? 'text-emerald-500' : upsideTarget < 0 ? 'text-red-500' : 'text-primary'}`}>
+                    {targetPrice > 0 && price > 0 ? `${upsideTarget > 0 ? '+' : ''}${upsideTarget.toFixed(1)}%` : '—'}
                   </span>
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground pt-1">Atualizado em: {new Date().toLocaleString('pt-BR')}</p>
               <div className="flex gap-2 pt-2">
                 <Button className="flex-1 gap-2" onClick={handleSave} disabled={!ticker || fairPrice <= 0}>
-                  <Save className="h-4 w-4" /> Salvar Preço Teto
+                  <Save className="h-4 w-4" /> Salvar Valuation
                 </Button>
                 <Button variant="outline" className="gap-2" onClick={reset} title="Resetar inputs manuais">
                   <RotateCcw className="h-4 w-4" />
