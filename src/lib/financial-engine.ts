@@ -277,6 +277,27 @@ export function calcVFF(
 
   if (fairValue <= 0 && netIncome > 0) warnings.push('Preço justo zerado — verifique ações e taxas.');
 
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('[DCF_DEBUG]', {
+      valuation_type: `VFF_${years}`,
+      anos_projecao: years,
+      lucro_base: netIncome,
+      lucros_projetados: profits,
+      taxa_desconto_pct: discountPct,
+      taxa_perpetua_pct: perpetuityPct,
+      crescimento_pct: growthPct,
+      lucro_final_usado_no_terminal: lastProfit,
+      valor_terminal_bruto: terminal,
+      fator_desconto_terminal: Math.pow(1 + r, years),
+      valor_terminal_presente: pvTerminal,
+      vpl_lucros_anuais: pvProfits,
+      valor_total_empresa: marketCap,
+      total_acoes: totalShares,
+      preco_justo_por_acao: fairValue,
+    });
+  }
+
   return {
     fairValue,
     maxBuyPrice: fairValue * 0.75,
