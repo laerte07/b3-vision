@@ -961,6 +961,66 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           </Card>
         );
       })()}
+
+      {/* CENÁRIOS */}
+      {fairPrice > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Cenários</CardTitle><CardDescription className="text-xs">Faixa provável do preço justo conforme premissas</CardDescription></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { label: 'Conservador', val: scenarioConservador, hint: 'g −2pp · r +2pp · perp −1pp', cls: 'border-red-500/30 bg-red-500/5 text-red-500' },
+                { label: 'Base', val: scenarioBase, hint: 'premissas atuais', cls: 'border-primary/30 bg-primary/5 text-primary' },
+                { label: 'Otimista', val: scenarioOtimista, hint: 'g +2pp · r −2pp · perp +1pp', cls: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-500' },
+              ].map(s => (
+                <div key={s.label} className={`rounded-lg border p-3 ${s.cls.split(' ').slice(0,2).join(' ')}`}>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                  <p className={`text-xl font-bold font-mono mt-1 ${s.cls.split(' ').slice(2).join(' ')}`}>{s.val > 0 ? formatBRL(s.val) : '—'}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">{s.hint}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* SENSIBILIDADE */}
+      {fairPrice > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Análise de Sensibilidade</CardTitle>
+            <CardDescription className="text-xs">Preço justo variando taxa de desconto (r) e perpétua (g)</CardDescription>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="p-2 text-left font-medium"></th>
+                  {[-0.5, 0, 0.5].map(pd => (
+                    <th key={pd} className="p-2 text-center font-medium">g {pd === 0 ? 'base' : (pd > 0 ? `+${pd}%` : `${pd}%`)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[-1, 0, 1].map((dd, i) => (
+                  <tr key={dd} className="border-t border-border/40">
+                    <td className="p-2 text-muted-foreground font-medium">r {dd === 0 ? 'base' : (dd > 0 ? `+${dd}%` : `${dd}%`)}</td>
+                    {[0, 1, 2].map(j => {
+                      const v = sensitivity[i]?.[j];
+                      const isBase = dd === 0 && j === 1;
+                      return (
+                        <td key={j} className={`p-2 text-right font-mono ${isBase ? 'bg-primary/15 text-primary font-bold ring-1 ring-primary/40' : ''}`}>
+                          {v != null && v > 0 ? formatBRL(v) : '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
