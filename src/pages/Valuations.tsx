@@ -889,20 +889,18 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
             <CardHeader className="pb-3"><CardTitle className="text-base">Premissas</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <FieldRow
-                label="Nº Total de Ações"
-                value={shares}
-                step="1"
-                onChange={v => setManuals(p => ({ ...p, shares: +v }))}
-                sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
-                hint={fd?.total_shares.source === 'nd' ? 'Não retornado pela API — preencha manualmente' : undefined}
+                label="Taxa Esperada de Crescimento (%)"
+                value={growth.toFixed(2)}
+                onChange={() => {}}
+                step="0.5"
+                disabled
+                hint="(1 − Payout) × ROE — limitado 0–15% (calculado)"
+                sourcedValue={{ value: autoGrowth, source: 'calculado' }}
               />
-              <FieldRow label="Payout médio (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} step="0.5" sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
-              <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} step="0.5" sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
-              <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
               <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
               <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
               <FieldRow label="Margem de Segurança (%)" value={safetyMargin} onChange={v => setManuals(p => ({ ...p, safetyMargin: +v }))} step="1" hint="Preço Teto = Preço Justo × (1 − Margem)" />
-              <p className="text-[10px] text-muted-foreground italic">💡 Média histórica da Selic é 11,53% (9,80% ex IR15%)</p>
+              <p className="text-[10px] text-muted-foreground italic">💡 Edite Nº Ações, Payout e ROE diretamente nos cards do topo. Selic histórica média 11,53% (9,80% ex IR15%).</p>
             </CardContent>
           </Card>
 
