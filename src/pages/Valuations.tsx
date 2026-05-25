@@ -603,7 +603,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const [manuals, setManuals] = useState<{
     payout?: number; roe?: number; growth?: number; discount?: number; perpetuity?: number;
     historicals?: Record<number, number | null>; projections?: Record<number, number>; growths?: Record<number, number>;
-    shares?: number; notes?: string; safetyMargin?: number;
+    shares?: number; notes?: string; safetyMargin?: number; price?: number;
   }>({});
   const { asset, fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -611,9 +611,39 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const refreshMarket = useRefreshMarket();
   const { isAdmin } = useIsAdmin();
   const [showDebug, setShowDebug] = useState(false);
+  const [loadedFrom, setLoadedFrom] = useState<{ ticker: string; date: string } | null>(null);
+
+  // Restore saved valuation (from "Meus Valuations" → 👁)
+  useEffect(() => {
+    const tabKey = years === 3 ? 'vff3' : 'vff5';
+    const payload = readPrefillValuation(tabKey);
+    if (!payload) return;
+    setTicker(payload.ticker);
+    const j = payload.json_breakdown || {};
+    const histMap: Record<number, number | null> = {};
+    if (Array.isArray(j.historicals)) {
+      j.historicals.forEach((h: any) => {
+        if (h && typeof h.year === 'number') histMap[h.year] = h.profit ?? null;
+      });
+    }
+    setManuals({
+      shares: j.shares ?? undefined,
+      payout: j.payout ?? undefined,
+      roe: j.roe ?? undefined,
+      growth: j.growth ?? undefined,
+      discount: j.discount ?? undefined,
+      perpetuity: j.perpetuity ?? undefined,
+      safetyMargin: j.safety_margin ?? undefined,
+      price: j.current_price ?? undefined,
+      notes: j.notes ?? '',
+      historicals: Object.keys(histMap).length ? histMap : undefined,
+    });
+    setLoadedFrom({ ticker: payload.ticker, date: payload.date });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Header KPI values
-  const price = fd?.price.value ?? 0;
+  const price = manuals.price ?? fd?.price.value ?? 0;
   const shares = manuals.shares ?? fd?.total_shares.value ?? 0;
   const mktcap = price * shares;
   const apiPayout = fd?.payout.value ?? 0;
