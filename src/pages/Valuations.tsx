@@ -822,13 +822,64 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         {statusContent && <div className="flex-1 min-w-[260px]">{statusContent}</div>}
       </div>
 
-      {/* TOP HEADER BAR */}
+      {/* Loaded valuation banner */}
+      {loadedFrom && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 flex items-center justify-between gap-2">
+          <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-2">
+            <Info className="h-3.5 w-3.5" />
+            Valuation carregado — <span className="font-mono font-semibold">{loadedFrom.ticker}</span> • {new Date(loadedFrom.date).toLocaleDateString('pt-BR')}
+          </p>
+          <button onClick={() => setLoadedFrom(null)} className="text-blue-500 hover:text-blue-400"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+
+      {/* TOP HEADER BAR — editable */}
       <div className="flex flex-wrap gap-2">
-        <KpiCell label="Preço Atual (R$)" value={HEADER_KPIS[0].fmt(price)} loading={isLoading} />
-        <KpiCell label="Nº Total de Ações" value={HEADER_KPIS[1].fmt(shares)} loading={isLoading} />
-        <KpiCell label="Market Cap (R$)" value={HEADER_KPIS[2].fmt(mktcap)} loading={isLoading} />
-        <KpiCell label="Payout (%)" value={HEADER_KPIS[3].fmt(payout)} loading={isLoading} />
-        <KpiCell label="ROE (%)" value={HEADER_KPIS[4].fmt(roe)} loading={isLoading} />
+        <EditableKpiCell
+          label="Preço Atual (R$)"
+          value={price}
+          displayValue={HEADER_KPIS[0].fmt(price)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, price: n }))}
+          badge={manuals.price == null && fd?.price.source === 'api'
+            ? <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30">api</Badge>
+            : manuals.price != null
+              ? <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-500/15 text-blue-600 border-blue-500/30">manual</Badge>
+              : undefined}
+          step="0.01"
+        />
+        <EditableKpiCell
+          label="Nº Total de Ações"
+          value={shares}
+          displayValue={HEADER_KPIS[1].fmt(shares)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, shares: n }))}
+          step="1"
+        />
+        <EditableKpiCell
+          label="Market Cap (R$)"
+          value={mktcap}
+          displayValue={HEADER_KPIS[2].fmt(mktcap)}
+          loading={isLoading}
+          onSave={null}
+          hint="preço × ações"
+        />
+        <EditableKpiCell
+          label="Payout (%)"
+          value={payout}
+          displayValue={HEADER_KPIS[3].fmt(payout)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, payout: n }))}
+          step="0.5"
+        />
+        <EditableKpiCell
+          label="ROE (%)"
+          value={roe}
+          displayValue={HEADER_KPIS[4].fmt(roe)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, roe: n }))}
+          step="0.5"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
