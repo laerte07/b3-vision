@@ -471,6 +471,76 @@ const KpiCell = ({ label, value, loading }: { label: string; value: string; load
   </div>
 );
 
+/** Editable KPI card — click pencil to edit inline. Pass onSave=null for read-only. */
+const EditableKpiCell = ({
+  label, value, displayValue, loading, onSave, step = 'any', badge, hint,
+}: {
+  label: string;
+  value: number;
+  displayValue: string;
+  loading: boolean;
+  onSave: ((n: number) => void) | null;
+  step?: string;
+  badge?: React.ReactNode;
+  hint?: string;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+  const commit = () => {
+    const n = Number(draft.replace(',', '.'));
+    if (Number.isFinite(n)) onSave?.(n);
+    setEditing(false);
+  };
+  const startEdit = () => {
+    if (!onSave) return;
+    setDraft(String(value ?? ''));
+    setEditing(true);
+  };
+  return (
+    <div className="group flex-1 min-w-[140px] rounded-lg border border-border bg-muted/30 p-3 relative">
+      <div className="flex items-center justify-between gap-1">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        {badge}
+      </div>
+      {loading ? (
+        <Skeleton className="h-5 w-20 mt-1.5" />
+      ) : editing ? (
+        <div className="flex items-center gap-1 mt-1">
+          <Input
+            ref={inputRef}
+            type="number"
+            step={step}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false); }}
+            onBlur={commit}
+            className="h-7 font-mono text-sm px-2"
+          />
+          <button type="button" onClick={commit} className="text-emerald-500 hover:text-emerald-400"><Check className="h-3.5 w-3.5" /></button>
+          <button type="button" onMouseDown={(e) => { e.preventDefault(); setEditing(false); }} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 mt-1">
+          <p className="text-base font-bold font-mono text-foreground">{displayValue}</p>
+          {onSave && (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+              title="Editar"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
+      {hint && <p className="text-[9px] text-muted-foreground mt-0.5">{hint}</p>}
+    </div>
+  );
+};
+
 const GrowthBadge = ({ pct }: { pct: number | null }) => {
   if (pct == null || !Number.isFinite(pct)) return <span className="text-muted-foreground text-xs">—</span>;
   const positive = pct >= 0;
