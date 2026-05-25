@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Save, AlertTriangle, CheckCircle2, Info, Loader2, BarChart3, RotateCcw, Minus, Plus, RefreshCw } from 'lucide-react';
+import { Save, AlertTriangle, CheckCircle2, Info, Loader2, BarChart3, RotateCcw, Minus, Plus, RefreshCw, Pencil, Check, X } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Textarea } from '@/components/ui/textarea';
 import { SavedValuationsModal } from '@/components/SavedValuationsModal';
 import { useSavedValuations } from '@/hooks/useSavedValuations';
@@ -44,6 +45,7 @@ type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
 
 // ---- Prefill helper: lets SavedValuationsModal pre-select a ticker per tab ----
 const PREFILL_KEY = 'valuation_prefill_v1';
+const LOAD_KEY = 'valuation_load_v1';
 const readPrefill = (tab: string): string => {
   try {
     const raw = sessionStorage.getItem(PREFILL_KEY);
@@ -64,6 +66,33 @@ export const writePrefill = (tab: string, ticker: string) => {
     obj[tab] = ticker;
     sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
   } catch { /* ignore */ }
+};
+
+export interface ValuationLoadPayload {
+  ticker: string;
+  date: string;
+  json_breakdown: Record<string, any>;
+}
+export const writePrefillValuation = (tab: string, payload: ValuationLoadPayload) => {
+  try {
+    const raw = sessionStorage.getItem(LOAD_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[tab] = payload;
+    sessionStorage.setItem(LOAD_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+};
+const readPrefillValuation = (tab: string): ValuationLoadPayload | null => {
+  try {
+    const raw = sessionStorage.getItem(LOAD_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw) as Record<string, ValuationLoadPayload>;
+    const p = obj[tab];
+    if (p) {
+      delete obj[tab];
+      sessionStorage.setItem(LOAD_KEY, JSON.stringify(obj));
+    }
+    return p ?? null;
+  } catch { return null; }
 };
 
 // ---- Shared components ----
