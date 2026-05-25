@@ -1072,7 +1072,151 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </div>
       </div>
 
-      {/* MEMÓRIA DE CÁLCULO — admin only */}
+      {/* CENÁRIOS — redesigned */}
+      {fairPrice > 0 && (() => {
+        const scenarios = [
+          { key: 'cons', label: 'Conservador', val: scenarioConservador, hint: 'g −2pp · r +2pp · perp −1pp',
+            borderCls: 'border-l-4 border-l-red-500 border-border/60', accentText: 'text-red-500' },
+          { key: 'base', label: 'Base', val: scenarioBase, hint: 'Premissas atuais',
+            borderCls: 'border-2 border-primary ring-2 ring-primary/20', accentText: 'text-primary' },
+          { key: 'otim', label: 'Otimista', val: scenarioOtimista, hint: 'g +2pp · r −2pp · perp +1pp',
+            borderCls: 'border-l-4 border-l-emerald-500 border-border/60', accentText: 'text-emerald-500' },
+        ];
+        const lo = scenarioConservador, hi = scenarioOtimista;
+        const pricePos = (hi > lo && price > 0) ? Math.max(0, Math.min(100, ((price - lo) / (hi - lo)) * 100)) : null;
+        const basePos = (hi > lo && scenarioBase > 0) ? Math.max(0, Math.min(100, ((scenarioBase - lo) / (hi - lo)) * 100)) : null;
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Cenários de Preço Justo</CardTitle>
+              <CardDescription className="text-xs">Faixa provável baseada nas premissas atuais</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {scenarios.map(s => {
+                  const ups = s.val > 0 && price > 0 ? ((s.val - price) / price) * 100 : null;
+                  return (
+                    <div key={s.key} className={`rounded-lg p-3 bg-muted/30 ${s.borderCls}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                      <p className={`text-2xl font-bold font-mono mt-1 ${s.accentText}`}>{s.val > 0 ? formatBRL(s.val) : '—'}</p>
+                      {ups != null && (
+                        <p className={`text-xs font-mono font-medium mt-0.5 ${ups >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {ups >= 0 ? '+' : ''}{ups.toFixed(1)}% vs preço atual
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-2 font-mono">{s.hint}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              {pricePos != null && (
+                <div className="pt-2">
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                    <span>{formatBRL(lo)}</span>
+                    <span className="text-muted-foreground/60">faixa Conservador → Otimista</span>
+                    <span>{formatBRL(hi)}</span>
+                  </div>
+                  <div className="relative h-2.5 rounded-full bg-gradient-to-r from-red-500/40 via-primary/40 to-emerald-500/40">
+                    {basePos != null && (
+                      <div
+                        className="absolute top-1/2 -translate-y-1/2 h-3 w-0.5 bg-primary/80"
+                        style={{ left: `${basePos}%` }}
+                        title={`Base: ${formatBRL(scenarioBase)}`}
+                      />
+                    )}
+                    <div
+                      className="absolute -top-1 h-4.5 w-3 rounded-sm bg-foreground border-2 border-background shadow"
+                      style={{ left: `calc(${pricePos}% - 6px)`, height: '18px' }}
+                      title={`Preço atual: ${formatBRL(price)}`}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 text-center">▮ Preço atual ({formatBRL(price)}) • ▍ Base ({formatBRL(scenarioBase)})</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* SENSIBILIDADE — heatmap redesign */}
+      {fairPrice > 0 && (() => {
+        const flat = sensitivity.flat().filter((v): v is number => v != null && v > 0);
+        const min = flat.length ? Math.min(...flat) : 0;
+        const max = flat.length ? Math.max(...flat) : 0;
+        const colorFor = (v: number) => {
+          if (max === min) return 'hsl(var(--muted))';
+          const t = (v - min) / (max - min); // 0=red, 1=green
+          const hue = 0 + t * 140; // red→green
+          return `hsl(${hue} 70% 45% / 0.18)`;
+        };
+        const dDeltas = [-1, 0, 1];
+        const pDeltas = [-0.5, 0, 0.5];
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Análise de Sensibilidade</CardTitle>
+              <CardDescription className="text-xs">Preço justo (R$) variando Taxa de Desconto (r) e Crescimento Perpétuo (g)</CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <TooltipProvider delayDuration={200}>
+                <table className="w-full text-xs border-separate border-spacing-1">
+                  <thead>
+                    <tr className="text-muted-foreground">
+                      <th className="p-2 text-left font-medium"></th>
+                      {pDeltas.map(pd => (
+                        <th key={pd} className="p-2 text-center font-medium">
+                          g {pd === 0 ? 'base' : (pd > 0 ? `+${pd}%` : `${pd}%`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dDeltas.map((dd, i) => (
+                      <tr key={dd}>
+                        <td className="p-2 text-muted-foreground font-medium whitespace-nowrap">
+                          r {dd === 0 ? 'base' : (dd > 0 ? `+${dd}%` : `${dd}%`)}
+                        </td>
+                        {pDeltas.map((pd, j) => {
+                          const v = sensitivity[i]?.[j];
+                          const isBase = dd === 0 && pd === 0;
+                          const ups = v != null && v > 0 && price > 0 ? ((v - price) / price) * 100 : null;
+                          const cell = (
+                            <td
+                              key={j}
+                              className={`p-2 text-right font-mono rounded-md ${isBase ? 'ring-2 ring-primary font-bold text-primary' : ''}`}
+                              style={v != null && v > 0 ? { background: colorFor(v) } : undefined}
+                            >
+                              {v != null && v > 0 ? formatBRL(v) : '—'}
+                            </td>
+                          );
+                          if (v == null || v <= 0) return cell;
+                          return (
+                            <Tooltip key={j}>
+                              <TooltipTrigger asChild>{cell}</TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">
+                                  Com r={(discount + dd).toFixed(1)}% e g={(perpetuity + pd).toFixed(1)}%, preço justo seria <strong>{formatBRL(v)}</strong>
+                                  {ups != null && <> (upside: <span className={ups >= 0 ? 'text-emerald-500' : 'text-red-500'}>{ups >= 0 ? '+' : ''}{ups.toFixed(1)}%</span>)</>}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TooltipProvider>
+              <p className="text-[10px] text-muted-foreground mt-3">
+                <span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: 'hsl(140 70% 45% / 0.4)' }} /> Verde = mais otimista ·
+                <span className="inline-block w-2 h-2 rounded-sm align-middle mx-1" style={{ background: 'hsl(0 70% 45% / 0.4)' }} /> Vermelho = mais conservador
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* MEMÓRIA DE CÁLCULO — admin only, moved to bottom */}
       {isAdmin && (() => {
         const invalidFields: string[] = [];
         if (!(baseNetIncome > 0)) invalidFields.push('lucro_base (≤ 0 ou ausente)');
@@ -1096,7 +1240,6 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           ['Nº total de ações', shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'],
           ['Preço justo por ação', fairPrice > 0 ? formatBRL(fairPrice) : '—'],
         ];
-
         return (
           <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
             <Collapsible open={showDebug} onOpenChange={setShowDebug}>
@@ -1139,66 +1282,6 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           </Card>
         );
       })()}
-
-      {/* CENÁRIOS */}
-      {fairPrice > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Cenários</CardTitle><CardDescription className="text-xs">Faixa provável do preço justo conforme premissas</CardDescription></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'Conservador', val: scenarioConservador, hint: 'g −2pp · r +2pp · perp −1pp', cls: 'border-red-500/30 bg-red-500/5 text-red-500' },
-                { label: 'Base', val: scenarioBase, hint: 'premissas atuais', cls: 'border-primary/30 bg-primary/5 text-primary' },
-                { label: 'Otimista', val: scenarioOtimista, hint: 'g +2pp · r −2pp · perp +1pp', cls: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-500' },
-              ].map(s => (
-                <div key={s.label} className={`rounded-lg border p-3 ${s.cls.split(' ').slice(0,2).join(' ')}`}>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                  <p className={`text-xl font-bold font-mono mt-1 ${s.cls.split(' ').slice(2).join(' ')}`}>{s.val > 0 ? formatBRL(s.val) : '—'}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">{s.hint}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* SENSIBILIDADE */}
-      {fairPrice > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Análise de Sensibilidade</CardTitle>
-            <CardDescription className="text-xs">Preço justo variando taxa de desconto (r) e perpétua (g)</CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="text-muted-foreground">
-                  <th className="p-2 text-left font-medium"></th>
-                  {[-0.5, 0, 0.5].map(pd => (
-                    <th key={pd} className="p-2 text-center font-medium">g {pd === 0 ? 'base' : (pd > 0 ? `+${pd}%` : `${pd}%`)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[-1, 0, 1].map((dd, i) => (
-                  <tr key={dd} className="border-t border-border/40">
-                    <td className="p-2 text-muted-foreground font-medium">r {dd === 0 ? 'base' : (dd > 0 ? `+${dd}%` : `${dd}%`)}</td>
-                    {[0, 1, 2].map(j => {
-                      const v = sensitivity[i]?.[j];
-                      const isBase = dd === 0 && j === 1;
-                      return (
-                        <td key={j} className={`p-2 text-right font-mono ${isBase ? 'bg-primary/15 text-primary font-bold ring-1 ring-primary/40' : ''}`}>
-                          {v != null && v > 0 ? formatBRL(v) : '—'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };
