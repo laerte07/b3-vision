@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Save, AlertTriangle, CheckCircle2, Info, Loader2, BarChart3, RotateCcw, Minus, Plus, RefreshCw } from 'lucide-react';
+import { Save, AlertTriangle, CheckCircle2, Info, Loader2, BarChart3, RotateCcw, Minus, Plus, RefreshCw, Pencil, Check, X } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Textarea } from '@/components/ui/textarea';
 import { SavedValuationsModal } from '@/components/SavedValuationsModal';
 import { useSavedValuations } from '@/hooks/useSavedValuations';
@@ -44,6 +45,7 @@ type DataStatus = 'idle' | 'loading' | 'success' | 'partial' | 'error';
 
 // ---- Prefill helper: lets SavedValuationsModal pre-select a ticker per tab ----
 const PREFILL_KEY = 'valuation_prefill_v1';
+const LOAD_KEY = 'valuation_load_v1';
 const readPrefill = (tab: string): string => {
   try {
     const raw = sessionStorage.getItem(PREFILL_KEY);
@@ -64,6 +66,33 @@ export const writePrefill = (tab: string, ticker: string) => {
     obj[tab] = ticker;
     sessionStorage.setItem(PREFILL_KEY, JSON.stringify(obj));
   } catch { /* ignore */ }
+};
+
+export interface ValuationLoadPayload {
+  ticker: string;
+  date: string;
+  json_breakdown: Record<string, any>;
+}
+export const writePrefillValuation = (tab: string, payload: ValuationLoadPayload) => {
+  try {
+    const raw = sessionStorage.getItem(LOAD_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    obj[tab] = payload;
+    sessionStorage.setItem(LOAD_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+};
+const readPrefillValuation = (tab: string): ValuationLoadPayload | null => {
+  try {
+    const raw = sessionStorage.getItem(LOAD_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw) as Record<string, ValuationLoadPayload>;
+    const p = obj[tab];
+    if (p) {
+      delete obj[tab];
+      sessionStorage.setItem(LOAD_KEY, JSON.stringify(obj));
+    }
+    return p ?? null;
+  } catch { return null; }
 };
 
 // ---- Shared components ----
@@ -442,6 +471,76 @@ const KpiCell = ({ label, value, loading }: { label: string; value: string; load
   </div>
 );
 
+/** Editable KPI card — click pencil to edit inline. Pass onSave=null for read-only. */
+const EditableKpiCell = ({
+  label, value, displayValue, loading, onSave, step = 'any', badge, hint,
+}: {
+  label: string;
+  value: number;
+  displayValue: string;
+  loading: boolean;
+  onSave: ((n: number) => void) | null;
+  step?: string;
+  badge?: React.ReactNode;
+  hint?: string;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+  const commit = () => {
+    const n = Number(draft.replace(',', '.'));
+    if (Number.isFinite(n)) onSave?.(n);
+    setEditing(false);
+  };
+  const startEdit = () => {
+    if (!onSave) return;
+    setDraft(String(value ?? ''));
+    setEditing(true);
+  };
+  return (
+    <div className="group flex-1 min-w-[140px] rounded-lg border border-border bg-muted/30 p-3 relative">
+      <div className="flex items-center justify-between gap-1">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        {badge}
+      </div>
+      {loading ? (
+        <Skeleton className="h-5 w-20 mt-1.5" />
+      ) : editing ? (
+        <div className="flex items-center gap-1 mt-1">
+          <Input
+            ref={inputRef}
+            type="number"
+            step={step}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false); }}
+            onBlur={commit}
+            className="h-7 font-mono text-sm px-2"
+          />
+          <button type="button" onClick={commit} className="text-emerald-500 hover:text-emerald-400"><Check className="h-3.5 w-3.5" /></button>
+          <button type="button" onMouseDown={(e) => { e.preventDefault(); setEditing(false); }} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 mt-1">
+          <p className="text-base font-bold font-mono text-foreground">{displayValue}</p>
+          {onSave && (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+              title="Editar"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
+      {hint && <p className="text-[9px] text-muted-foreground mt-0.5">{hint}</p>}
+    </div>
+  );
+};
+
 const GrowthBadge = ({ pct }: { pct: number | null }) => {
   if (pct == null || !Number.isFinite(pct)) return <span className="text-muted-foreground text-xs">—</span>;
   const positive = pct >= 0;
@@ -504,7 +603,7 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const [manuals, setManuals] = useState<{
     payout?: number; roe?: number; growth?: number; discount?: number; perpetuity?: number;
     historicals?: Record<number, number | null>; projections?: Record<number, number>; growths?: Record<number, number>;
-    shares?: number; notes?: string; safetyMargin?: number;
+    shares?: number; notes?: string; safetyMargin?: number; price?: number;
   }>({});
   const { asset, fd, status } = useFinancialData(ticker);
   const save = useSaveValuation();
@@ -512,9 +611,39 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
   const refreshMarket = useRefreshMarket();
   const { isAdmin } = useIsAdmin();
   const [showDebug, setShowDebug] = useState(false);
+  const [loadedFrom, setLoadedFrom] = useState<{ ticker: string; date: string } | null>(null);
+
+  // Restore saved valuation (from "Meus Valuations" → 👁)
+  useEffect(() => {
+    const tabKey = years === 3 ? 'vff3' : 'vff5';
+    const payload = readPrefillValuation(tabKey);
+    if (!payload) return;
+    setTicker(payload.ticker);
+    const j = payload.json_breakdown || {};
+    const histMap: Record<number, number | null> = {};
+    if (Array.isArray(j.historicals)) {
+      j.historicals.forEach((h: any) => {
+        if (h && typeof h.year === 'number') histMap[h.year] = h.profit ?? null;
+      });
+    }
+    setManuals({
+      shares: j.shares ?? undefined,
+      payout: j.payout ?? undefined,
+      roe: j.roe ?? undefined,
+      growth: j.growth ?? undefined,
+      discount: j.discount ?? undefined,
+      perpetuity: j.perpetuity ?? undefined,
+      safetyMargin: j.safety_margin ?? undefined,
+      price: j.current_price ?? undefined,
+      notes: j.notes ?? '',
+      historicals: Object.keys(histMap).length ? histMap : undefined,
+    });
+    setLoadedFrom({ ticker: payload.ticker, date: payload.date });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Header KPI values
-  const price = fd?.price.value ?? 0;
+  const price = manuals.price ?? fd?.price.value ?? 0;
   const shares = manuals.shares ?? fd?.total_shares.value ?? 0;
   const mktcap = price * shares;
   const apiPayout = fd?.payout.value ?? 0;
@@ -693,13 +822,64 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         {statusContent && <div className="flex-1 min-w-[260px]">{statusContent}</div>}
       </div>
 
-      {/* TOP HEADER BAR */}
+      {/* Loaded valuation banner */}
+      {loadedFrom && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 flex items-center justify-between gap-2">
+          <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-2">
+            <Info className="h-3.5 w-3.5" />
+            Valuation carregado — <span className="font-mono font-semibold">{loadedFrom.ticker}</span> • {new Date(loadedFrom.date).toLocaleDateString('pt-BR')}
+          </p>
+          <button onClick={() => setLoadedFrom(null)} className="text-blue-500 hover:text-blue-400"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+
+      {/* TOP HEADER BAR — editable */}
       <div className="flex flex-wrap gap-2">
-        <KpiCell label="Preço Atual (R$)" value={HEADER_KPIS[0].fmt(price)} loading={isLoading} />
-        <KpiCell label="Nº Total de Ações" value={HEADER_KPIS[1].fmt(shares)} loading={isLoading} />
-        <KpiCell label="Market Cap (R$)" value={HEADER_KPIS[2].fmt(mktcap)} loading={isLoading} />
-        <KpiCell label="Payout (%)" value={HEADER_KPIS[3].fmt(payout)} loading={isLoading} />
-        <KpiCell label="ROE (%)" value={HEADER_KPIS[4].fmt(roe)} loading={isLoading} />
+        <EditableKpiCell
+          label="Preço Atual (R$)"
+          value={price}
+          displayValue={HEADER_KPIS[0].fmt(price)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, price: n }))}
+          badge={manuals.price == null && fd?.price.source === 'api'
+            ? <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30">api</Badge>
+            : manuals.price != null
+              ? <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-500/15 text-blue-600 border-blue-500/30">manual</Badge>
+              : undefined}
+          step="0.01"
+        />
+        <EditableKpiCell
+          label="Nº Total de Ações"
+          value={shares}
+          displayValue={HEADER_KPIS[1].fmt(shares)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, shares: n }))}
+          step="1"
+        />
+        <EditableKpiCell
+          label="Market Cap (R$)"
+          value={mktcap}
+          displayValue={HEADER_KPIS[2].fmt(mktcap)}
+          loading={isLoading}
+          onSave={null}
+          hint="preço × ações"
+        />
+        <EditableKpiCell
+          label="Payout (%)"
+          value={payout}
+          displayValue={HEADER_KPIS[3].fmt(payout)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, payout: n }))}
+          step="0.5"
+        />
+        <EditableKpiCell
+          label="ROE (%)"
+          value={roe}
+          displayValue={HEADER_KPIS[4].fmt(roe)}
+          loading={isLoading}
+          onSave={(n) => setManuals(p => ({ ...p, roe: n }))}
+          step="0.5"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -709,20 +889,18 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
             <CardHeader className="pb-3"><CardTitle className="text-base">Premissas</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <FieldRow
-                label="Nº Total de Ações"
-                value={shares}
-                step="1"
-                onChange={v => setManuals(p => ({ ...p, shares: +v }))}
-                sourcedValue={manuals.shares != null ? { value: manuals.shares, source: 'manual' } : fd?.total_shares}
-                hint={fd?.total_shares.source === 'nd' ? 'Não retornado pela API — preencha manualmente' : undefined}
+                label="Taxa Esperada de Crescimento (%)"
+                value={growth.toFixed(2)}
+                onChange={() => {}}
+                step="0.5"
+                disabled
+                hint="(1 − Payout) × ROE — limitado 0–15% (calculado)"
+                sourcedValue={{ value: autoGrowth, source: 'calculado' }}
               />
-              <FieldRow label="Payout médio (%)" value={payout} onChange={v => setManuals(p => ({ ...p, payout: +v }))} step="0.5" sourcedValue={manuals.payout != null ? { value: manuals.payout, source: 'manual' } : fd?.payout} />
-              <FieldRow label="ROE (%)" value={roe} onChange={v => setManuals(p => ({ ...p, roe: +v }))} step="0.5" sourcedValue={manuals.roe != null ? { value: manuals.roe, source: 'manual' } : fd?.roe} />
-              <FieldRow label="Taxa Esperada de Crescimento (%)" value={growth.toFixed(2)} onChange={v => setManuals(p => ({ ...p, growth: +v }))} step="0.5" hint="(1 − Payout) × ROE — limitado 0–15%" sourcedValue={manuals.growth != null ? { value: manuals.growth, source: 'manual' } : { value: autoGrowth, source: 'calculado' }} />
               <FieldRow label="Taxa de Desconto (%)" value={discount} onChange={v => setManuals(p => ({ ...p, discount: +v }))} step="0.5" />
               <FieldRow label="Taxa Perpétua (%)" value={perpetuity} onChange={v => setManuals(p => ({ ...p, perpetuity: +v }))} step="0.5" />
               <FieldRow label="Margem de Segurança (%)" value={safetyMargin} onChange={v => setManuals(p => ({ ...p, safetyMargin: +v }))} step="1" hint="Preço Teto = Preço Justo × (1 − Margem)" />
-              <p className="text-[10px] text-muted-foreground italic">💡 Média histórica da Selic é 11,53% (9,80% ex IR15%)</p>
+              <p className="text-[10px] text-muted-foreground italic">💡 Edite Nº Ações, Payout e ROE diretamente nos cards do topo. Selic histórica média 11,53% (9,80% ex IR15%).</p>
             </CardContent>
           </Card>
 
@@ -894,7 +1072,151 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
         </div>
       </div>
 
-      {/* MEMÓRIA DE CÁLCULO — admin only */}
+      {/* CENÁRIOS — redesigned */}
+      {fairPrice > 0 && (() => {
+        const scenarios = [
+          { key: 'cons', label: 'Conservador', val: scenarioConservador, hint: 'g −2pp · r +2pp · perp −1pp',
+            borderCls: 'border-l-4 border-l-red-500 border-border/60', accentText: 'text-red-500' },
+          { key: 'base', label: 'Base', val: scenarioBase, hint: 'Premissas atuais',
+            borderCls: 'border-2 border-primary ring-2 ring-primary/20', accentText: 'text-primary' },
+          { key: 'otim', label: 'Otimista', val: scenarioOtimista, hint: 'g +2pp · r −2pp · perp +1pp',
+            borderCls: 'border-l-4 border-l-emerald-500 border-border/60', accentText: 'text-emerald-500' },
+        ];
+        const lo = scenarioConservador, hi = scenarioOtimista;
+        const pricePos = (hi > lo && price > 0) ? Math.max(0, Math.min(100, ((price - lo) / (hi - lo)) * 100)) : null;
+        const basePos = (hi > lo && scenarioBase > 0) ? Math.max(0, Math.min(100, ((scenarioBase - lo) / (hi - lo)) * 100)) : null;
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Cenários de Preço Justo</CardTitle>
+              <CardDescription className="text-xs">Faixa provável baseada nas premissas atuais</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {scenarios.map(s => {
+                  const ups = s.val > 0 && price > 0 ? ((s.val - price) / price) * 100 : null;
+                  return (
+                    <div key={s.key} className={`rounded-lg p-3 bg-muted/30 ${s.borderCls}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                      <p className={`text-2xl font-bold font-mono mt-1 ${s.accentText}`}>{s.val > 0 ? formatBRL(s.val) : '—'}</p>
+                      {ups != null && (
+                        <p className={`text-xs font-mono font-medium mt-0.5 ${ups >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {ups >= 0 ? '+' : ''}{ups.toFixed(1)}% vs preço atual
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-2 font-mono">{s.hint}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              {pricePos != null && (
+                <div className="pt-2">
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                    <span>{formatBRL(lo)}</span>
+                    <span className="text-muted-foreground/60">faixa Conservador → Otimista</span>
+                    <span>{formatBRL(hi)}</span>
+                  </div>
+                  <div className="relative h-2.5 rounded-full bg-gradient-to-r from-red-500/40 via-primary/40 to-emerald-500/40">
+                    {basePos != null && (
+                      <div
+                        className="absolute top-1/2 -translate-y-1/2 h-3 w-0.5 bg-primary/80"
+                        style={{ left: `${basePos}%` }}
+                        title={`Base: ${formatBRL(scenarioBase)}`}
+                      />
+                    )}
+                    <div
+                      className="absolute -top-1 h-4.5 w-3 rounded-sm bg-foreground border-2 border-background shadow"
+                      style={{ left: `calc(${pricePos}% - 6px)`, height: '18px' }}
+                      title={`Preço atual: ${formatBRL(price)}`}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 text-center">▮ Preço atual ({formatBRL(price)}) • ▍ Base ({formatBRL(scenarioBase)})</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* SENSIBILIDADE — heatmap redesign */}
+      {fairPrice > 0 && (() => {
+        const flat = sensitivity.flat().filter((v): v is number => v != null && v > 0);
+        const min = flat.length ? Math.min(...flat) : 0;
+        const max = flat.length ? Math.max(...flat) : 0;
+        const colorFor = (v: number) => {
+          if (max === min) return 'hsl(var(--muted))';
+          const t = (v - min) / (max - min); // 0=red, 1=green
+          const hue = 0 + t * 140; // red→green
+          return `hsl(${hue} 70% 45% / 0.18)`;
+        };
+        const dDeltas = [-1, 0, 1];
+        const pDeltas = [-0.5, 0, 0.5];
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Análise de Sensibilidade</CardTitle>
+              <CardDescription className="text-xs">Preço justo (R$) variando Taxa de Desconto (r) e Crescimento Perpétuo (g)</CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <TooltipProvider delayDuration={200}>
+                <table className="w-full text-xs border-separate border-spacing-1">
+                  <thead>
+                    <tr className="text-muted-foreground">
+                      <th className="p-2 text-left font-medium"></th>
+                      {pDeltas.map(pd => (
+                        <th key={pd} className="p-2 text-center font-medium">
+                          g {pd === 0 ? 'base' : (pd > 0 ? `+${pd}%` : `${pd}%`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dDeltas.map((dd, i) => (
+                      <tr key={dd}>
+                        <td className="p-2 text-muted-foreground font-medium whitespace-nowrap">
+                          r {dd === 0 ? 'base' : (dd > 0 ? `+${dd}%` : `${dd}%`)}
+                        </td>
+                        {pDeltas.map((pd, j) => {
+                          const v = sensitivity[i]?.[j];
+                          const isBase = dd === 0 && pd === 0;
+                          const ups = v != null && v > 0 && price > 0 ? ((v - price) / price) * 100 : null;
+                          const cell = (
+                            <td
+                              key={j}
+                              className={`p-2 text-right font-mono rounded-md ${isBase ? 'ring-2 ring-primary font-bold text-primary' : ''}`}
+                              style={v != null && v > 0 ? { background: colorFor(v) } : undefined}
+                            >
+                              {v != null && v > 0 ? formatBRL(v) : '—'}
+                            </td>
+                          );
+                          if (v == null || v <= 0) return cell;
+                          return (
+                            <Tooltip key={j}>
+                              <TooltipTrigger asChild>{cell}</TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">
+                                  Com r={(discount + dd).toFixed(1)}% e g={(perpetuity + pd).toFixed(1)}%, preço justo seria <strong>{formatBRL(v)}</strong>
+                                  {ups != null && <> (upside: <span className={ups >= 0 ? 'text-emerald-500' : 'text-red-500'}>{ups >= 0 ? '+' : ''}{ups.toFixed(1)}%</span>)</>}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TooltipProvider>
+              <p className="text-[10px] text-muted-foreground mt-3">
+                <span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: 'hsl(140 70% 45% / 0.4)' }} /> Verde = mais otimista ·
+                <span className="inline-block w-2 h-2 rounded-sm align-middle mx-1" style={{ background: 'hsl(0 70% 45% / 0.4)' }} /> Vermelho = mais conservador
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* MEMÓRIA DE CÁLCULO — admin only, moved to bottom */}
       {isAdmin && (() => {
         const invalidFields: string[] = [];
         if (!(baseNetIncome > 0)) invalidFields.push('lucro_base (≤ 0 ou ausente)');
@@ -918,7 +1240,6 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           ['Nº total de ações', shares > 0 ? new Intl.NumberFormat('pt-BR').format(shares) : '—'],
           ['Preço justo por ação', fairPrice > 0 ? formatBRL(fairPrice) : '—'],
         ];
-
         return (
           <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
             <Collapsible open={showDebug} onOpenChange={setShowDebug}>
@@ -961,66 +1282,6 @@ const VFF = ({ years }: { years: 3 | 5 }) => {
           </Card>
         );
       })()}
-
-      {/* CENÁRIOS */}
-      {fairPrice > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Cenários</CardTitle><CardDescription className="text-xs">Faixa provável do preço justo conforme premissas</CardDescription></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'Conservador', val: scenarioConservador, hint: 'g −2pp · r +2pp · perp −1pp', cls: 'border-red-500/30 bg-red-500/5 text-red-500' },
-                { label: 'Base', val: scenarioBase, hint: 'premissas atuais', cls: 'border-primary/30 bg-primary/5 text-primary' },
-                { label: 'Otimista', val: scenarioOtimista, hint: 'g +2pp · r −2pp · perp +1pp', cls: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-500' },
-              ].map(s => (
-                <div key={s.label} className={`rounded-lg border p-3 ${s.cls.split(' ').slice(0,2).join(' ')}`}>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                  <p className={`text-xl font-bold font-mono mt-1 ${s.cls.split(' ').slice(2).join(' ')}`}>{s.val > 0 ? formatBRL(s.val) : '—'}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">{s.hint}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* SENSIBILIDADE */}
-      {fairPrice > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Análise de Sensibilidade</CardTitle>
-            <CardDescription className="text-xs">Preço justo variando taxa de desconto (r) e perpétua (g)</CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="text-muted-foreground">
-                  <th className="p-2 text-left font-medium"></th>
-                  {[-0.5, 0, 0.5].map(pd => (
-                    <th key={pd} className="p-2 text-center font-medium">g {pd === 0 ? 'base' : (pd > 0 ? `+${pd}%` : `${pd}%`)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[-1, 0, 1].map((dd, i) => (
-                  <tr key={dd} className="border-t border-border/40">
-                    <td className="p-2 text-muted-foreground font-medium">r {dd === 0 ? 'base' : (dd > 0 ? `+${dd}%` : `${dd}%`)}</td>
-                    {[0, 1, 2].map(j => {
-                      const v = sensitivity[i]?.[j];
-                      const isBase = dd === 0 && j === 1;
-                      return (
-                        <td key={j} className={`p-2 text-right font-mono ${isBase ? 'bg-primary/15 text-primary font-bold ring-1 ring-primary/40' : ''}`}>
-                          {v != null && v > 0 ? formatBRL(v) : '—'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };

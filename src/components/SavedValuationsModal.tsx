@@ -19,6 +19,7 @@ import {
   MODEL_LABELS, MODEL_TAB_KEYS, type SavedValuation,
 } from '@/hooks/useSavedValuations';
 import { buildConsensus, scoreClassification, type ConsensusRow } from '@/lib/valuation-consensus';
+import { writePrefillValuation } from '@/pages/Valuations';
 
 interface Props {
   open: boolean;
@@ -230,7 +231,15 @@ export const SavedValuationsModal = ({ open, onOpenChange, onOpenValuation }: Pr
   }, [valuations, activeTab, search, filter, sort]);
 
   const handleOpen = (v: SavedValuation) => {
-    onOpenValuation?.(MODEL_TAB_KEYS[v.model_type] || 'graham', v.ticker);
+    const tab = MODEL_TAB_KEYS[v.model_type] || 'graham';
+    if (tab === 'vff3' || tab === 'vff5') {
+      writePrefillValuation(tab, {
+        ticker: v.ticker,
+        date: v.updated_at,
+        json_breakdown: v.json_breakdown ?? {},
+      });
+    }
+    onOpenValuation?.(tab, v.ticker);
     onOpenChange(false);
   };
 
