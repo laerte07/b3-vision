@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,13 +9,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Eye, Plus, Trash2, BarChart3, Pencil, Search, Loader2 } from 'lucide-react';
+import { Eye, Plus, Trash2, BarChart3, Pencil, Search, Loader2, Wallet } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAssetClasses } from '@/hooks/useAssetClasses';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist, useLookupTicker, useUpdateWatchlistNote, WatchlistRow } from '@/hooks/useWatchlist';
 import { formatBRL, formatPct } from '@/lib/format';
 import FundamentalsDrawer from '@/components/FundamentalsDrawer';
 
 export const WatchlistTab = () => {
   const { data: items = [], isLoading } = useWatchlist();
+  const { data: classes = [] } = useAssetClasses();
+  const navigate = useNavigate();
   const add = useAddToWatchlist();
   const remove = useRemoveFromWatchlist();
   const updateNote = useUpdateWatchlistNote();
@@ -29,6 +34,28 @@ export const WatchlistTab = () => {
   });
 
   const resetForm = () => setForm({ ticker: '', setor: '', notes: '', preview: null });
+
+  // Open Aportes page with this watchlist asset pre-filled in the launch modal.
+  const handleAportar = (it: WatchlistRow) => {
+    // Detect class: prefer the asset's existing class_id; fallback by ticker heuristic.
+    let classId = it.class_id;
+    if (!classId) {
+      const t = it.ticker.toUpperCase();
+      let slug = 'acoes';
+      if (/11$/.test(t)) slug = 'fiis';
+      const cls = classes.find(c => c.slug === slug) ?? classes.find(c => c.slug === 'acoes');
+      classId = cls?.id ?? '';
+    }
+    const payload = {
+      ticker: it.ticker,
+      asset_id: it.id,
+      class_id: classId,
+      price: it.last_price ?? 0,
+      qty: 1,
+    };
+    sessionStorage.setItem('aporte_prefill_watchlist', JSON.stringify(payload));
+    navigate('/app/contributions');
+  };
 
   const handleSearch = async () => {
     if (!form.ticker.trim()) return;
@@ -103,6 +130,7 @@ export const WatchlistTab = () => {
                   <div><span className="text-muted-foreground block">Setor</span><span className="text-xs truncate">{it.setor || '—'}</span></div>
                 </div>
                 <div className="flex justify-end gap-0.5 pt-1 border-t border-border/30">
+                  <AportarBtn onClick={() => handleAportar(it)} />
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => { setEditItem(it); setForm({ ticker: it.ticker, setor: it.setor || '', notes: it.notes || '', preview: null }); }}><Pencil className="h-3 w-3" /></Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => setFundAsset(it)}><BarChart3 className="h-3 w-3" /></Button>
                   <DeleteBtn ticker={it.ticker} onConfirm={() => remove.mutate(it.watchlist_id)} />
@@ -136,6 +164,7 @@ export const WatchlistTab = () => {
                     <TableCell><Badge variant="outline" className="text-[10px] border-primary/30 text-primary bg-primary/5">Observando</Badge></TableCell>
                     <TableCell>
                       <div className="flex gap-0.5">
+                        <AportarBtn onClick={() => handleAportar(it)} />
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => { setEditItem(it); setForm({ ticker: it.ticker, setor: it.setor || '', notes: it.notes || '', preview: null }); }}><Pencil className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setFundAsset(it)}><BarChart3 className="h-3.5 w-3.5" /></Button>
                         <DeleteBtn ticker={it.ticker} onConfirm={() => remove.mutate(it.watchlist_id)} />
@@ -234,3 +263,21 @@ const DeleteBtn = ({ ticker, onConfirm }: { ticker: string; onConfirm: () => voi
 );
 
 export default WatchlistTab;
+
+const AportarBtn = ({ onClick }: { onClick: () => void }) => (
+  <TooltipProvider delayDuration={150}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-emerald-500/80 hover:text-emerald-400"
+          onClick={onClick}
+        >
+          <Wallet className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">Registrar aporte</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
