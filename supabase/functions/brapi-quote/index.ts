@@ -23,44 +23,42 @@ async function fetchBrapi(ticker: string, brapiToken: string): Promise<{ data: a
 
   // Try with full modules first
   const fullUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}&modules=summaryProfile,defaultKeyStatistics,financialData,dividendsData`;
-  console.log(`BRAPI full URL for ${ticker}:`, fullUrl);
   const fullRes = await fetch(fullUrl);
   const fullRaw = await fullRes.text();
-  console.log(`BRAPI full ${ticker}: status=${fullRes.status}, len=${fullRaw.length}`);
 
   if (fullRes.ok) {
     const parsed = JSON.parse(fullRaw);
     return { data: parsed, raw: fullRaw, status: fullRes.status, limitedPlan: false };
   }
 
-  // Check if it's a modules limitation (HTTP 400)
-  if (fullRes.status === 400) {
-    const isModulesError = fullRaw.includes("MODULES_NOT_AVAILABLE") || fullRaw.includes("modules");
-    if (isModulesError) {
-      console.log(`BRAPI ${ticker}: limited plan detected, retrying with summaryProfile only`);
-      // Retry with only summaryProfile (allowed on basic plan)
-      const simpleUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}&modules=summaryProfile`;
-      const simpleRes = await fetch(simpleUrl);
-      const simpleRaw = await simpleRes.text();
-      console.log(`BRAPI simple ${ticker}: status=${simpleRes.status}, len=${simpleRaw.length}`);
+  // brapi free plan rejects the `modules` parameter with HTTP 400 or 403.
+  // Fall back to a plain quote request (price only) on ANY non-2xx so the
+  // app keeps working even without a PRO subscription.
+  if (fullRes.status === 400 || fullRes.status === 401 || fullRes.status === 402 || fullRes.status === 403) {
+    console.log(`BRAPI ${ticker}: modules rejected (${fullRes.status}), falling back to plain quote`);
 
-      if (simpleRes.ok) {
-        const parsed = JSON.parse(simpleRaw);
-        return { data: parsed, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
-      }
-      // fallback: no modules at all
-      const fallbackUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}`;
-      const fallbackRes = await fetch(fallbackUrl);
-      const fallbackRaw = await fallbackRes.text();
-      if (fallbackRes.ok) {
-        const parsed = JSON.parse(fallbackRaw);
-        return { data: parsed, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
-      }
-      return { data: null, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
+    // Try with summaryProfile only (sometimes allowed on free)
+    const simpleUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}&modules=summaryProfile`;
+    const simpleRes = await fetch(simpleUrl);
+    const simpleRaw = await simpleRes.text();
+    if (simpleRes.ok) {
+      const parsed = JSON.parse(simpleRaw);
+      return { data: parsed, raw: simpleRaw, status: simpleRes.status, limitedPlan: true };
     }
+
+    // Last resort: no modules at all (price-only — always available on free plan)
+    const fallbackUrl = `https://brapi.dev/api/quote/${enc}?token=${brapiToken}`;
+    const fallbackRes = await fetch(fallbackUrl);
+    const fallbackRaw = await fallbackRes.text();
+    if (fallbackRes.ok) {
+      const parsed = JSON.parse(fallbackRaw);
+      return { data: parsed, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
+    }
+    return { data: null, raw: fallbackRaw, status: fallbackRes.status, limitedPlan: true };
   }
 
-  // Non-modules error
+  // Other errors (5xx, network, etc.)
+  console.error(`BRAPI ${ticker}: unrecoverable status=${fullRes.status}, body=${fullRaw.slice(0, 200)}`);
   return { data: null, raw: fullRaw, status: fullRes.status, limitedPlan: false };
 }
 
