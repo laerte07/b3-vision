@@ -514,7 +514,18 @@ const Contributions = () => {
   // CONFIRM via Launch Modal
   // ============================================================
   const handleLaunchConfirm = async (launchItems: LaunchItem[], note: string, date: string) => {
+    console.log('[Lançamento] handleLaunchConfirm called', { launchItems, note, date, user: user?.id, mode });
+
+    if (!user) {
+      toast.error('Sessão expirada. Faça login novamente.');
+      return;
+    }
+
     const validItems = launchItems.filter(i => i.quantity > 0 && i.price > 0 && i.asset_id);
+    if (validItems.length === 0) {
+      toast.error('Nenhum lançamento válido. Verifique ativo, preço e quantidade.');
+      return;
+    }
 
     // Validate sells
     for (const li of validItems) {
@@ -538,7 +549,10 @@ const Contributions = () => {
 
       if (li.type === 'compra' && li.isExternal && assetId.startsWith('ext:')) {
         const classId = li.class_id || classes?.find(c => c.slug === (li.externalClassSlug ?? 'acoes'))?.id;
-        if (!classId || !user) continue;
+        if (!classId) {
+          toast.error(`Selecione a classe do ativo ${li.ticker}`);
+          return;
+        }
 
         const { data: newAsset, error: assetErr } = await supabase
           .from('assets')
@@ -552,8 +566,9 @@ const Contributions = () => {
           .single();
 
         if (assetErr || !newAsset) {
-          console.error('Failed to create asset', li.ticker, assetErr);
-          continue;
+          console.error('[Lançamento] Falha ao cadastrar ativo', li.ticker, assetErr);
+          toast.error(`Falha ao cadastrar ${li.ticker}: ${assetErr?.message ?? 'erro desconhecido'}`);
+          return;
         }
         assetId = newAsset.id;
       }
@@ -569,21 +584,33 @@ const Contributions = () => {
       console.log(`[Lançamento] ${li.type} ${li.ticker} qty=${li.quantity} price=${li.price} total=${li.price * li.quantity}`);
     }
 
-    if (resolvedItems.length === 0) return;
+    if (resolvedItems.length === 0) {
+      toast.error('Nenhum lançamento pôde ser processado.');
+      return;
+    }
 
     const buyTotal = resolvedItems.filter(i => i.type === 'compra').reduce((s, i) => s + i.amount, 0);
     const sellTotal = resolvedItems.filter(i => i.type === 'venda').reduce((s, i) => s + i.amount, 0);
     const netTotal = buyTotal - sellTotal;
 
-    confirmContribution.mutate({
+    const payload = {
       contribution_date: date,
       total_amount: netTotal,
       allocation_mode: mode,
       note: note || undefined,
       items: resolvedItems,
-    });
-    setShowLaunchModal(false);
-    setNoteText('');
+    };
+    console.log('[Lançamento] Saving contribution payload:', payload);
+
+    try {
+      await confirmContribution.mutateAsync(payload);
+      console.log('[Lançamento] Saved successfully');
+      setShowLaunchModal(false);
+      setNoteText('');
+    } catch (err: any) {
+      console.error('[Lançamento] Save failed:', err);
+      // toast already shown by useConfirmContribution.onError
+    }
   };
 
   // Prefill items for launch modal from suggestions
