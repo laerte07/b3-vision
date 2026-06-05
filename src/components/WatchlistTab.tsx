@@ -263,3 +263,21 @@ const DeleteBtn = ({ ticker, onConfirm }: { ticker: string; onConfirm: () => voi
 );
 
 export default WatchlistTab;
+
+const AportarBtn = ({ onClick }: { onClick: () => void }) => (
+  <TooltipProvider delayDuration={150}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-emerald-500/80 hover:text-emerald-400"
+          onClick={onClick}
+        >
+          <Wallet className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">Registrar aporte</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
