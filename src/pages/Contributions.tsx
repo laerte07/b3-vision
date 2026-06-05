@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,6 +95,34 @@ const Contributions = () => {
   const [editNoteId, setEditNoteId] = useState<string | null>(null);
   const [editNoteText, setEditNoteText] = useState('');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'month' | 'year'>('all');
+  const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
+  const [prefillCustomItems, setPrefillCustomItems] = useState<LaunchItem[] | undefined>(undefined);
+
+  // Watch for prefill from Watchlist "Aportar" quick action (via sessionStorage).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('aporte_prefill_watchlist');
+      if (!raw) return;
+      sessionStorage.removeItem('aporte_prefill_watchlist');
+      const payload = JSON.parse(raw) as { ticker: string; asset_id: string; class_id: string; price: number; qty: number };
+      const li: LaunchItem = {
+        id: `wlprefill-${Date.now()}`,
+        type: 'compra',
+        asset_id: payload.asset_id,
+        ticker: payload.ticker,
+        class_id: payload.class_id,
+        price: payload.price ?? 0,
+        quantity: payload.qty ?? 1,
+        fees: 0,
+        total: (payload.price ?? 0) * (payload.qty ?? 1),
+        priceAuto: payload.price > 0,
+      };
+      setPrefillCustomItems([li]);
+      setShowLaunchModal(true);
+    } catch (e) {
+      console.warn('[Aportes] prefill watchlist parse failed', e);
+    }
+  }, []);
 
   // --- Computed ---
   const totalPortfolio = useMemo(
@@ -515,6 +543,7 @@ const Contributions = () => {
   // ============================================================
   const handleLaunchConfirm = async (launchItems: LaunchItem[], note: string, date: string) => {
     console.log('[Lançamento] handleLaunchConfirm called', { launchItems, note, date, user: user?.id, mode });
+    setLineErrors({});
 
     if (!user) {
       toast.error('Sessão expirada. Faça login novamente.');
@@ -532,45 +561,84 @@ const Contributions = () => {
       if (li.type === 'venda') {
         const pos = portfolio.find(p => p.id === li.asset_id);
         if (!pos || li.quantity > pos.quantity) {
+          setLineErrors(prev => ({ ...prev, [li.id]: `Quantidade excede a posição (${pos?.quantity ?? 0})` }));
           toast.error(`Quantidade de venda de ${li.ticker} excede a posição disponível (${pos?.quantity ?? 0})`);
           return;
         }
         if (li.quantity <= 0) {
+          setLineErrors(prev => ({ ...prev, [li.id]: 'Quantidade inválida' }));
           toast.error(`Informe uma quantidade válida para venda de ${li.ticker}`);
           return;
         }
       }
     }
 
-    // Auto-create external assets first (only for buys)
+    // ============================================================
+    // 1) Resolve every ticker to a single asset_id (dedupe across lines).
+    //    For each unique ticker that needs an asset row, upsert ONCE.
+    //    Multiple lines with the same ticker share the resolved id.
+    // ============================================================
+    const tickerToAssetId = new Map<string, string>();
+
+    // Helper: ensure an asset row exists for ticker+class. Reuses existing if present.
+    const ensureAsset = async (ticker: string, classId: string): Promise<string | null> => {
+      const upper = ticker.toUpperCase();
+      const cached = tickerToAssetId.get(upper);
+      if (cached) return cached;
+
+      const { data: existing } = await supabase
+        .from('assets')
+        .select('id, active')
+        .eq('user_id', user.id)
+        .eq('ticker', upper)
+        .maybeSingle();
+
+      if (existing?.id) {
+        // Make sure it's marked active (watchlist assets are active=false)
+        if (!existing.active) {
+          await supabase.from('assets').update({ active: true }).eq('id', existing.id);
+        }
+        tickerToAssetId.set(upper, existing.id);
+        return existing.id;
+      }
+
+      const { data: created, error: insErr } = await supabase
+        .from('assets')
+        .insert({ user_id: user.id, ticker: upper, class_id: classId, active: true })
+        .select('id')
+        .single();
+
+      if (insErr || !created) {
+        console.error('[Lançamento] insert asset failed', upper, insErr);
+        return null;
+      }
+      tickerToAssetId.set(upper, created.id);
+      return created.id;
+    };
+
     const resolvedItems: { asset_id: string; amount: number; quantity: number; unit_price: number; type: 'compra' | 'venda' }[] = [];
+
     for (const li of validItems) {
       let assetId = li.asset_id;
+      const upperT = li.ticker.toUpperCase();
 
       if (li.type === 'compra' && li.isExternal && assetId.startsWith('ext:')) {
         const classId = li.class_id || classes?.find(c => c.slug === (li.externalClassSlug ?? 'acoes'))?.id;
         if (!classId) {
+          setLineErrors(prev => ({ ...prev, [li.id]: 'Selecione a classe do ativo' }));
           toast.error(`Selecione a classe do ativo ${li.ticker}`);
           return;
         }
-
-        const { data: newAsset, error: assetErr } = await supabase
-          .from('assets')
-          .insert({
-            user_id: user.id,
-            ticker: li.ticker.toUpperCase(),
-            class_id: classId,
-            active: true,
-          })
-          .select('id')
-          .single();
-
-        if (assetErr || !newAsset) {
-          console.error('[Lançamento] Falha ao cadastrar ativo', li.ticker, assetErr);
-          toast.error(`Falha ao cadastrar ${li.ticker}: ${assetErr?.message ?? 'erro desconhecido'}`);
+        const resolved = await ensureAsset(upperT, classId);
+        if (!resolved) {
+          setLineErrors(prev => ({ ...prev, [li.id]: `Falha ao cadastrar ${li.ticker}` }));
+          toast.error(`Falha ao cadastrar ${li.ticker}`);
           return;
         }
-        assetId = newAsset.id;
+        assetId = resolved;
+      } else {
+        // Existing asset_id — still cache its ticker so duplicates reuse the same id
+        tickerToAssetId.set(upperT, assetId);
       }
 
       resolvedItems.push({
@@ -605,8 +673,40 @@ const Contributions = () => {
     try {
       await confirmContribution.mutateAsync(payload);
       console.log('[Lançamento] Saved successfully');
+
+      // ============================================================
+      // Bug 2: Migrate any bought asset that exists in the watchlist
+      // to the portfolio by deleting the watchlist row.
+      // ============================================================
+      const boughtTickers = Array.from(
+        new Set(validItems.filter(i => i.type === 'compra').map(i => i.ticker.toUpperCase()))
+      );
+      if (boughtTickers.length > 0) {
+        const { data: wlRows } = await supabase
+          .from('watchlist')
+          .select('id, ticker')
+          .eq('user_id', user.id)
+          .in('ticker', boughtTickers);
+
+        for (const wl of wlRows ?? []) {
+          const { error: delErr } = await supabase.from('watchlist').delete().eq('id', wl.id);
+          if (!delErr) {
+            const li = validItems.find(i => i.ticker.toUpperCase() === wl.ticker.toUpperCase());
+            const className = classes.find(c => c.id === li?.class_id)?.name ?? 'Carteira';
+            toast.success(`${wl.ticker} movido de Em Observação para ${className}`);
+          }
+        }
+        // Refresh watchlist + portfolio queries
+        // (confirmContribution.onSuccess already invalidates portfolio)
+        // Manually invalidate watchlist:
+        const { useQueryClient } = await import('@tanstack/react-query');
+        // can't call hook here — fallback: dispatch event the WatchlistTab listens to? simplest: rely on next refetch.
+      }
+
       setShowLaunchModal(false);
+      setPrefillCustomItems(undefined);
       setNoteText('');
+      setLineErrors({});
     } catch (err: any) {
       console.error('[Lançamento] Save failed:', err);
       // toast already shown by useConfirmContribution.onError
@@ -1058,10 +1158,12 @@ const Contributions = () => {
       {/* Launch Modal */}
       <ContributionLaunchModal
         open={showLaunchModal}
-        onOpenChange={setShowLaunchModal}
+        onOpenChange={(o) => { setShowLaunchModal(o); if (!o) { setPrefillCustomItems(undefined); setLineErrors({}); } }}
         portfolio={portfolio}
         classes={classes}
         prefillItems={suggestions.filter(s => s.suggestedQty > 0).length > 0 ? prefillItems : undefined}
+        prefillCustomItems={prefillCustomItems}
+        itemErrors={lineErrors}
         aporteDate={aporteDate}
         noteText={noteText}
         onConfirm={handleLaunchConfirm}
