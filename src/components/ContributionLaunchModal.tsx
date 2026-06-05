@@ -43,6 +43,10 @@ interface Props {
     qty: number;
     price: number;
   }[];
+  /** Optional fully-formed prefill items (used by Watchlist "Aportar" flow). Takes precedence over prefillItems. */
+  prefillCustomItems?: LaunchItem[];
+  /** Map of line id → error message, used to highlight rows that failed to save. */
+  itemErrors?: Record<string, string>;
   aporteDate: string;
   noteText: string;
   onConfirm: (items: LaunchItem[], note: string, date: string) => void;
@@ -71,7 +75,7 @@ interface ExternalResult {
 // COMPONENT
 // ============================================================
 export function ContributionLaunchModal({
-  open, onOpenChange, portfolio, classes, prefillItems, aporteDate, noteText: initialNote, onConfirm, isPending,
+  open, onOpenChange, portfolio, classes, prefillItems, prefillCustomItems, itemErrors, aporteDate, noteText: initialNote, onConfirm, isPending,
 }: Props) {
   const [items, setItems] = useState<LaunchItem[]>([]);
   const [note, setNote] = useState(initialNote);
@@ -82,7 +86,9 @@ export function ContributionLaunchModal({
     setNote(initialNote);
     setDate(aporteDate);
 
-    if (prefillItems && prefillItems.length > 0) {
+    if (prefillCustomItems && prefillCustomItems.length > 0) {
+      setItems(prefillCustomItems.map(i => recalcTotal({ ...i })));
+    } else if (prefillItems && prefillItems.length > 0) {
       setItems(
         prefillItems.map(pi => recalcTotal({
           id: genId(),
@@ -100,7 +106,7 @@ export function ContributionLaunchModal({
     } else {
       setItems([]);
     }
-  }, [open, prefillItems, aporteDate, initialNote]);
+  }, [open, prefillItems, prefillCustomItems, aporteDate, initialNote]);
 
   const grandTotal = useMemo(() => items.reduce((s, i) => s + i.total, 0), [items]);
 
@@ -188,6 +194,7 @@ export function ContributionLaunchModal({
                 classes={classes}
                 onUpdate={updateItem}
                 onRemove={removeItem}
+                error={itemErrors?.[item.id]}
               />
             ))}
           </div>
@@ -223,7 +230,7 @@ export function ContributionLaunchModal({
 // SINGLE ITEM ROW
 // ============================================================
 function LaunchItemRow({
-  item, index, portfolio, classes, onUpdate, onRemove,
+  item, index, portfolio, classes, onUpdate, onRemove, error,
 }: {
   item: LaunchItem;
   index: number;
@@ -231,6 +238,7 @@ function LaunchItemRow({
   classes: { id: string; name: string; slug: string }[];
   onUpdate: (id: string, patch: Partial<LaunchItem>) => void;
   onRemove: (id: string) => void;
+  error?: string;
 }) {
   const [assetSearch, setAssetSearch] = useState('');
   const [assetOpen, setAssetOpen] = useState(false);
@@ -362,7 +370,10 @@ function LaunchItemRow({
   const showEmpty = assetSearch.length >= 2 && !hasLocal && !hasExternal && !externalLoading;
 
   return (
-    <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+    <div className={cn(
+      "rounded-lg border bg-muted/20 p-4 space-y-3",
+      error ? "border-destructive ring-1 ring-destructive/40" : "border-border"
+    )}>
       {/* Header */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground font-medium min-w-[20px]">#{index + 1}</span>
@@ -481,6 +492,14 @@ function LaunchItemRow({
         <div className="flex items-center gap-1.5 text-[10px] text-blue-400">
           <Globe className="h-3 w-3" />
           Ativo novo — será cadastrado automaticamente ao confirmar
+        </div>
+      )}
+
+      {/* Inline error message */}
+      {error && (
+        <div className="flex items-center gap-1.5 text-[11px] text-destructive">
+          <AlertTriangle className="h-3 w-3" />
+          {error}
         </div>
       )}
 
