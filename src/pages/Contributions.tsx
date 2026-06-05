@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +75,7 @@ function getAssetScore(asset: PortfolioAsset): number {
 // ============================================================
 const Contributions = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { data: portfolio = [], isLoading: loadingPortfolio } = usePortfolio();
   const { data: classes = [] } = useAssetClasses();
   const { data: targets = [] } = useClassTargets();
@@ -696,11 +698,8 @@ const Contributions = () => {
             toast.success(`${wl.ticker} movido de Em Observação para ${className}`);
           }
         }
-        // Refresh watchlist + portfolio queries
-        // (confirmContribution.onSuccess already invalidates portfolio)
-        // Manually invalidate watchlist:
-        const { useQueryClient } = await import('@tanstack/react-query');
-        // can't call hook here — fallback: dispatch event the WatchlistTab listens to? simplest: rely on next refetch.
+        // Refresh watchlist query so the row disappears immediately.
+        queryClient.invalidateQueries({ queryKey: ['watchlist'] });
       }
 
       setShowLaunchModal(false);
