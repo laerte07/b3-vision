@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Portfolio from "./pages/Portfolio";
 import Rebalancing from "./pages/Rebalancing";
 import Valuations from "./pages/Valuations";
+import ValuationsFII from "./pages/ValuationsFII";
 import Correlation from "./pages/Correlation";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -61,6 +62,7 @@ const App = () => (
               <Route path="contributions" element={<Contributions />} />
               <Route path="rentabilidade" element={<Rentabilidade />} />
               <Route path="valuations" element={<Valuations />} />
+              <Route path="valuations-fii" element={<ValuationsFII />} />
               <Route path="score" element={<Score />} />
               <Route path="correlation" element={<Correlation />} />
               <Route path="reports" element={<Reports />} />
