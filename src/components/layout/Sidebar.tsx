@@ -16,6 +16,7 @@ const navItems = [
   { path: '/app/contributions', label: 'Aportes', icon: Wallet },
   { path: '/app/rentabilidade', label: 'Rentabilidade', icon: LineChart },
   { path: '/app/valuations', label: 'Valuations', icon: Calculator },
+  { path: '/app/valuations-fii', label: 'Valuations - FII', icon: Calculator },
   { path: '/app/score', label: 'Score', icon: Brain },
   { path: '/app/correlation', label: 'Correlação', icon: GitBranch },
   { path: '/app/reports', label: 'Relatórios', icon: FileText },
