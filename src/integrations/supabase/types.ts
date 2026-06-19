@@ -323,6 +323,78 @@ export type Database = {
           },
         ]
       }
+      fii_valuations: {
+        Row: {
+          anotacoes: string | null
+          created_at: string
+          crescimento_dividendo: number | null
+          dividendo_mensal: number | null
+          id: string
+          inflacao_esperada: number | null
+          ir_ntnb: number | null
+          margem_seguranca: number | null
+          nome: string | null
+          prazo_ntnb: string | null
+          preco_atual: number | null
+          preco_premio_zero: number | null
+          preco_teto: number | null
+          premio_desejado: number | null
+          status: string | null
+          taxa_ntnb_real: number | null
+          ticker: string
+          tributacao_fii: number | null
+          updated_at: string
+          upside: number | null
+          user_id: string
+        }
+        Insert: {
+          anotacoes?: string | null
+          created_at?: string
+          crescimento_dividendo?: number | null
+          dividendo_mensal?: number | null
+          id?: string
+          inflacao_esperada?: number | null
+          ir_ntnb?: number | null
+          margem_seguranca?: number | null
+          nome?: string | null
+          prazo_ntnb?: string | null
+          preco_atual?: number | null
+          preco_premio_zero?: number | null
+          preco_teto?: number | null
+          premio_desejado?: number | null
+          status?: string | null
+          taxa_ntnb_real?: number | null
+          ticker: string
+          tributacao_fii?: number | null
+          updated_at?: string
+          upside?: number | null
+          user_id: string
+        }
+        Update: {
+          anotacoes?: string | null
+          created_at?: string
+          crescimento_dividendo?: number | null
+          dividendo_mensal?: number | null
+          id?: string
+          inflacao_esperada?: number | null
+          ir_ntnb?: number | null
+          margem_seguranca?: number | null
+          nome?: string | null
+          prazo_ntnb?: string | null
+          preco_atual?: number | null
+          preco_premio_zero?: number | null
+          preco_teto?: number | null
+          premio_desejado?: number | null
+          status?: string | null
+          taxa_ntnb_real?: number | null
+          ticker?: string
+          tributacao_fii?: number | null
+          updated_at?: string
+          upside?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       fundamentals_cache: {
         Row: {
           asset_id: string
